@@ -67,6 +67,27 @@ Nota: El servidor Go (`server/config.go`) tiene algunos valores hardcodeados com
 - **Frontend**: React 19, Vite 7, TypeScript 5.9. Sin state manager externo.
 - **Paths**: Siempre relativos a la raíz del proyecto. Los procesos se lanzan desde la raíz.
 
+## Gestión de Repositorios
+
+El proyecto está dividido en dos repositorios en GitHub:
+
+1. **Source Repo** (`sigo`): Contiene todo el código fuente, lógica de compilación y documentación técnica. Es el repositorio de desarrollo.
+2. **Release Repo** (`sigo-release`): Contiene únicamente los binarios (`.exe`), assets del frontend compilados, y scripts de ejecución. No incluye código fuente de Go o React.
+
+### Flujo de Publicación Automatizada
+
+Se ha implementado un **GitHub Action** en el repositorio `sigo-release` que automatiza las entregas:
+
+- **Trigger:** Cada `push` a la rama `master` de `sigo-release`.
+- **Acción:** Empaqueta todo el contenido en un archivo `.zip` con marca de tiempo.
+- **Salida:** Crea/actualiza un **GitHub Release** llamado "Latest Release" donde adjunta el `.zip` listo para descargar.
+
+## Cómo compilar y desplegar nueva versión
+
+1. En el repositorio principal (`RED_SIGO`), ejecutar `scripts\build_release.bat`. Esto genera/actualiza la carpeta `release/`.
+2. Copiar el contenido de `release/` al repositorio local de la release.
+3. Hacer `push` en el repositorio de la release para activar el auto-deploy.
+
 ## Puertos
 
 | Puerto | Servicio |

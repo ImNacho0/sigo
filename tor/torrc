@@ -3,8 +3,8 @@
 
 # Basics
 DataDirectory tor_data
-GeoIPFile ..\tor_bin\geoip
-GeoIPv6File ..\tor_bin\geoip6
+GeoIPFile tor_bin/geoip
+GeoIPv6File tor_bin/geoip6
 
 # SOCKS proxy for the web server to use
 # Forzamos solo a localhost para que nadie fuera de la maquina lo use
@@ -17,7 +17,7 @@ ControlPort 127.0.0.1:9051
 # SERVICIO OCULTO #1 - Principal (UCO-Web)
 # ========================================
 HiddenServiceDir hidden_service_1
-HiddenServicePort 80 127.0.0.1:8080
+HiddenServicePort 80 127.0.0.1:80
 
 # ========================================
 # SERVICIO OCULTO #2 - Alternativo/Respaldo
