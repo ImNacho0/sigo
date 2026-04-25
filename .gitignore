@@ -1,0 +1,45 @@
+# Environment & secrets
+.env
+configs/licenses.json
+
+# Build outputs
+release/
+static/
+*.exe
+
+# Go
+process-manager/process-manager.exe
+server/server.exe
+
+# Node
+node_modules/
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+api/.env
+
+# Tor runtime data
+tor/tor_data/
+tor/tor_log.txt
+tor/tor.pid
+tor/hidden_service_*/
+scripts/tor.pid
+
+# Claude
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+

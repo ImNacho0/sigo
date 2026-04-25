@@ -1,0 +1,26 @@
+[
+    {
+        "id": "server",
+        "name": "Web",
+        "command": "./server.exe",
+        "type": "executable"
+    },
+    {
+        "id": "gateway",
+        "name": "API",
+        "command": "python api\\app.py",
+        "type": "python"
+    },
+    {
+        "id": "tor",
+        "name": "TOR",
+        "command": "cmd /c scripts\\toggle_tor.bat",
+        "type": "executable"
+    },
+    {
+        "id": "bot_indexer",
+        "name": "Indexer",
+        "command": "bot_indexer",
+        "type": "internal"
+    }
+]

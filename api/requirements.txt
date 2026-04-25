@@ -1,0 +1,6 @@
+Flask>=3.0
+Flask-CORS>=4.0
+elasticsearch>=8.0
+python-dotenv>=1.0
+google-generativeai>=0.5
+requests>=2.31

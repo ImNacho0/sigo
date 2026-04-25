@@ -1,0 +1,14 @@
+{
+  "example-license": {
+    "key": "example-license",
+    "name": "Usuario Ejemplo",
+    "type": "all",
+    "expiration": "2030-01-01T23:59:59Z",
+    "quota_search": 100,
+    "quota_padron": 20,
+    "used_search": 0,
+    "used_padron": 0,
+    "last_reset": "2026-01-01T00:00:00Z",
+    "role": "user"
+  }
+}

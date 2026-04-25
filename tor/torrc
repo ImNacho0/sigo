@@ -1,0 +1,52 @@
+# Tor Configuration for UCO-Web - Multi-Onion Support
+# Puedes tener múltiples direcciones .onion en la misma máquina
+
+# Basics
+DataDirectory tor_data
+GeoIPFile ..\tor_bin\geoip
+GeoIPv6File ..\tor_bin\geoip6
+
+# SOCKS proxy for the web server to use
+# Forzamos solo a localhost para que nadie fuera de la maquina lo use
+SocksPort 127.0.0.1:9050
+
+# Control Port (Solo localhost)
+ControlPort 127.0.0.1:9051
+
+# ========================================
+# SERVICIO OCULTO #1 - Principal (UCO-Web)
+# ========================================
+HiddenServiceDir hidden_service_1
+HiddenServicePort 80 127.0.0.1:8080
+
+# ========================================
+# SERVICIO OCULTO #2 - Alternativo/Respaldo
+# ========================================
+# Descomenta las siguientes líneas para activar una segunda dirección .onion
+# que apunta al MISMO servidor (útil para compartimentalizar accesos)
+#HiddenServiceDir hidden_service_2
+#HiddenServicePort 80 127.0.0.1:8080
+
+# ========================================
+# SERVICIO OCULTO #3 - Otro Puerto/Servicio
+# ========================================
+# Si tienes OTRO servicio corriendo en otro puerto (ej: 8081), puedes exponerlo así:
+#HiddenServiceDir hidden_service_3
+#HiddenServicePort 80 127.0.0.1:8081
+
+# ========================================
+# SERVICIO OCULTO #4 - API Backend (main.py)
+# ========================================
+# COMENTADO POR SEGURIDAD (Se recomienda usar 127.0.0.1 localmente)
+#HiddenServiceDir hidden_service_api
+#HiddenServicePort 80 127.0.0.1:5000
+
+# Logging
+Log notice file tor_log.txt
+
+# NOTA IMPORTANTE:
+# - Cada HiddenServiceDir genera una dirección .onion ÚNICA
+# - Puedes tener tantas como quieras
+# - Todas pueden apuntar al mismo puerto (8080) o a puertos diferentes
+# - Para activar más servicios, simplemente descomenta las líneas
+# - Después de modificar, reinicia Tor con toggle_tor.bat (OFF -> ON)
