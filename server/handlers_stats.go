@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -73,56 +74,25 @@ func getRelativeTime(t time.Time) string {
 	}
 }
 
-// handleStats devuelve las estadísticas de todos los países desde la API Python
+// handleStats devuelve las estadísticas de todos los países desde el cache
 func handleStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Proxy request to Python API
-	req, err := http.NewRequest("GET", BackendURL+"/stats", nil)
-	if err != nil {
-		http.Error(w, "Error creando petición", http.StatusInternalServerError)
-		return
+	statsCacheMux.RLock()
+	// Crear una copia con fechas relativas calculadas en tiempo real
+	statsWithRelativeTime := make(map[string]CountryStats)
+	for countryID, stat := range statsCache {
+		statCopy := stat
+		statCopy.LastScan = getRelativeTime(stat.LastScanTime)
+		statsWithRelativeTime[countryID] = statCopy
 	}
+	statsCacheMux.RUnlock()
 
-	// Forward authorization header from original request
-	if auth := r.Header.Get("Authorization"); auth != "" {
-		req.Header.Set("Authorization", auth)
-	} else if cookie, err := r.Cookie("UCO_SESSION"); err == nil {
-		// If no Bearer token, use session cookie as Bearer token
-		req.Header.Set("Authorization", "Bearer "+cookie.Value)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		http.Error(w, "Error conectando con API", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Copy response headers
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
-
-	w.WriteHeader(resp.StatusCode)
-
-	// Stream response body
-	var buf [4096]byte
-	for {
-		n, err := resp.Body.Read(buf[:])
-		if n > 0 {
-			w.Write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
-	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(statsWithRelativeTime)
 }
 
 // handleStatsInvalidate actualiza las estadísticas cuando el indexer termina
