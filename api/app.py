@@ -499,8 +499,8 @@ def padron_esp():
 # ================= STATS ENDPOINT =================
 @app.route("/stats", methods=["GET"])
 def get_stats():
-    # Mapping from index name to region id used in frontend
-    index_to_region = {
+    # Mapping from alias name to region id used in frontend
+    alias_to_region = {
         "espana": "es",
         "argentina": "ar",
         "elsalvador": "sv",
@@ -514,22 +514,36 @@ def get_stats():
     }
 
     stats = {}
-    for index, region_id in index_to_region.items():
+    for alias, region_id in alias_to_region.items():
         try:
-            # Get document count for index
-            count = es.count(index=index)["count"]
+            print(f"
+{'='*60}")
+            print(f"Processing alias: {alias} -> {region_id}")
 
-            # Get index size
-            index_stats = es.indices.stats(index=index)
-            size_bytes = index_stats["indices"][index]["total"]["store"]["size_in_bytes"]
-            size_gb = size_bytes / (1024 ** 3)
+            # Get document count using the alias
+            count = es.count(index=alias)["count"]
+            print(f"Document count: {count}")
+
+            # Get stats for the alias
+            alias_stats = es.indices.stats(index=alias)
+
+            # Get size from stats
+            # The stats response has structure: {"_all": {...}, "indices": {...}}
+            total_size_bytes = alias_stats["_all"]["total"]["store"]["size_in_bytes"]
+            size_gb = total_size_bytes / (1024 ** 3)
             leak_size = f"{size_gb:.1f} GB"
+            print(f"Alias size: {leak_size} ({total_size_bytes} bytes)")
 
-            # Get last modification time (using index creation/update metadata)
-            index_info = es.indices.get(index=index)
-            # Try to get creation date from settings
-            creation_date_ms = index_info[index]["settings"]["index"].get("creation_date", "0")
+            # Get alias information to find the underlying index
+            alias_info = es.indices.get_alias(name=alias)
+            index_name = list(alias_info.keys())[0] if alias_info else alias
+            print(f"Underlying index: {index_name}")
+
+            # Get index creation date
+            index_info = es.indices.get(index=index_name)
+            creation_date_ms = index_info[index_name]["settings"]["index"].get("creation_date", "0")
             creation_date = datetime.fromtimestamp(int(creation_date_ms) / 1000)
+            print(f"Index creation date: {creation_date}")
 
             # Calculate relative time
             now = datetime.now()
@@ -552,19 +566,26 @@ def get_stats():
                 years = days // 365
                 last_scan = f"hace {years} año{'s' if years > 1 else ''}"
 
+            print(f"Last scan: {last_scan}")
+
             stats[region_id] = {
                 "doc_count": count,
                 "leakSize": leak_size,
                 "last_scan": last_scan
             }
         except Exception as e:
-            print(f"Error getting stats for {index}: {e}")
+            print(f"Error getting stats for {alias}: {e}")
             stats[region_id] = {
                 "doc_count": 0,
                 "leakSize": "0.0 GB",
                 "last_scan": "desconocido"
             }
 
+    print(f"
+{'='*60}")
+    print("Final stats response:")
+    print(json.dumps(stats, indent=2))
+    
     return jsonify(stats)
 
 
