@@ -238,7 +238,9 @@ def check_auth():
 
 def full_token():
     auth = request.headers.get("Authorization")
-    return auth.split(" ")[1] if auth else "—"
+    if auth and auth.startswith("Bearer ") and len(auth.split(" ")) > 1:
+        return auth.split(" ")[1]
+    return "—"
 
 # ================= DISCORD LOG =================
 def send_to_discord_log(data):
