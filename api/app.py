@@ -10,7 +10,12 @@ from flask_cors import CORS
 import logging
 import requests  # 👈 para Discord
 
-load_dotenv()
+# Try to load .env from current directory, or from parent directory (e.g., if running from api/)
+env_path = '.env'
+if not os.path.exists(env_path):
+    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+
+load_dotenv(env_path)
 
 # ================= COLORES =================
 RESET = "\033[0m"
@@ -24,9 +29,16 @@ GRAY = "\033[90m"
 ES_HOST = os.getenv("ES_HOST")
 ES_USER = os.getenv("ES_USER")
 ES_PASSWD = os.getenv("ES_PASSWD")
+
+# Unificar tokens: aceptamos tanto AUTHORIZED_TOKENS (json array) como BACKEND_BEARER_TOKEN (string)
 AUTHORIZED_TOKENS = json.loads(os.getenv("AUTHORIZED_TOKENS", "[]"))
+if not AUTHORIZED_TOKENS:
+    single_token = os.getenv("BACKEND_BEARER_TOKEN")
+    if single_token:
+        AUTHORIZED_TOKENS = [single_token]
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
+DISCORD_WEBHOOK = os.getenv("DISCORD_SEARCH_WEBHOOK") # 👈 Unificado con Go
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")

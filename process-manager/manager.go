@@ -11,12 +11,28 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
-const DiscordProcessWebhook = "https://discord.com/api/webhooks/1467912108548292629/KAs_KSCYZspVozHUJa5Jeyx_dZFBU0GW5LU6s9cfStU2XZDubGQEvKzn7ZlxVBBWRGzN"
+var DiscordProcessWebhook = "https://discord.com/api/webhooks/1467912108548292629/KAs_KSCYZspVozHUJa5Jeyx_dZFBU0GW5LU6s9cfStU2XZDubGQEvKzn7ZlxVBBWRGzN"
+
+func init() {
+	// Try to load .env from current directory or parent directory
+	envPath := ".env"
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		envPath = filepath.Join("..", ".env")
+	}
+	_ = godotenv.Load(envPath)
+
+	if val := os.Getenv("DISCORD_PROCESS_WEBHOOK"); val != "" {
+		DiscordProcessWebhook = val
+	}
+}
 
 type DiscordEmbed struct {
 	Title       string         `json:"title,omitempty"`

@@ -2,30 +2,29 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
-	"log"
-	"strings"
-
+	"github.com/joho/godotenv"
 	"golang.org/x/net/proxy"
 )
 
-const (
-	TorProxy      = "127.0.0.1:9050"
-	BackendURL    = "http://127.0.0.1:5000"
-	BearerToken   = "SVwp00yfJjx2FTuV5AmFVEMUknsfd6sdertgajksfgyr1GBoKQjCK"
-	ListenAddr    = "0.0.0.0:80"
-	TorListenAddr = "127.0.0.1:8081"
-	GeminiAPIKey  = "AIzaSyD6aNe6lx4vFQ7yYKubkBiRatM2rRkA4oE"
-	GeminiURL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="
-
-	// Discord Webhooks
-	DiscordSearchWebhook = "https://discord.com/api/webhooks/1467911384950903041/QlKl4UheCp4lxVDYsmqM_KplKoF_38Z8pVuZWYOGBCDKYex8zvLKOm26U-CA3QRkZS9I"
-	DiscordChatWebhook   = "https://discord.com/api/webhooks/1467911978834985023/-Inj6yUzEbEZAj_SQ1jqpdTY4EC8aISCA4CDCe1rU_qdjGsFy0JUrjj5zZ6Eb-BPQHVK"
+var (
+	TorProxy             = "127.0.0.1:9050"
+	BackendURL           = "http://127.0.0.1:5000"
+	BearerToken          string
+	ListenAddr           = "0.0.0.0:80"
+	TorListenAddr        = "127.0.0.1:8081"
+	GeminiAPIKey         string
+	GeminiURL            = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="
+	DiscordSearchWebhook string
+	DiscordChatWebhook   string
 	DiscordBrandColor    = 0x1a4031 // Dark Green from branding
 )
 
@@ -90,6 +89,22 @@ func init() {
 	// Register WebP MIME type (Correcting from WP2 experiment)
 	mime.AddExtensionType(".webp", "image/webp")
 
+	// Try to load .env from current directory or parent directory
+	envPath := ".env"
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		// Try parent directory (e.g. when running from server/ directory)
+		envPath = filepath.Join("..", ".env")
+	}
+
+	// Load it if we found it (it's okay if not, environment variables might be set directly)
+	_ = godotenv.Load(envPath)
+
+	// Load secrets from environment
+	BearerToken = getEnvOrDefault("BACKEND_BEARER_TOKEN", "SVwp00yfJjx2FTuV5AmFVEMUknsfd6sdertgajksfgyr1GBoKQjCK")
+	GeminiAPIKey = getEnvOrDefault("GEMINI_API_KEY", "AIzaSyD6aNe6lx4vFQ7yYKubkBiRatM2rRkA4oE")
+	DiscordSearchWebhook = getEnvOrDefault("DISCORD_SEARCH_WEBHOOK", "https://discord.com/api/webhooks/1467911384950903041/QlKl4UheCp4lxVDYsmqM_KplKoF_38Z8pVuZWYOGBCDKYex8zvLKOm26U-CA3QRkZS9I")
+	DiscordChatWebhook = getEnvOrDefault("DISCORD_CHAT_WEBHOOK", "https://discord.com/api/webhooks/1467911978834985023/-Inj6yUzEbEZAj_SQ1jqpdTY4EC8aISCA4CDCe1rU_qdjGsFy0JUrjj5zZ6Eb-BPQHVK")
+
 	// Setup runtime tokens for inbound Discord bridge
 	DiscordBridgeToken = os.Getenv("DISCORD_BRIDGE_TOKEN")
 
@@ -127,4 +142,11 @@ func getHttpClient(targetURL string) *http.Client {
 		return torClient
 	}
 	return http.DefaultClient
+}
+
+func getEnvOrDefault(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists && value != "" {
+		return value
+	}
+	return fallback
 }
