@@ -497,9 +497,6 @@ def padron_esp():
 # ================= STATS ENDPOINT =================
 @app.route("/stats", methods=["GET"])
 def get_stats():
-    if not check_auth():
-        return jsonify({"error": "No autorizado"}), 401
-
     # Mapping from index name to region id used in frontend
     index_to_region = {
         "espana": "es",
@@ -507,7 +504,11 @@ def get_stats():
         "elsalvador": "sv",
         "nicaragua": "ni",
         "peru": "pe",
-        "chile": "cl"
+        "chile": "cl",
+        "bolivia": "bo",
+        "ecuador": "ec",
+        "venezuela": "ve",
+        "paraguay": "py"
     }
 
     stats = {}
@@ -515,17 +516,51 @@ def get_stats():
         try:
             # Get document count for index
             count = es.count(index=index)["count"]
+
+            # Get index size
+            index_stats = es.indices.stats(index=index)
+            size_bytes = index_stats["indices"][index]["total"]["store"]["size_in_bytes"]
+            size_gb = size_bytes / (1024 ** 3)
+            leak_size = f"{size_gb:.1f} GB"
+
+            # Get last modification time (using index creation/update metadata)
+            index_info = es.indices.get(index=index)
+            # Try to get creation date from settings
+            creation_date_ms = index_info[index]["settings"]["index"].get("creation_date", "0")
+            creation_date = datetime.fromtimestamp(int(creation_date_ms) / 1000)
+
+            # Calculate relative time
+            now = datetime.now()
+            diff = now - creation_date
+            days = diff.days
+
+            if days == 0:
+                last_scan = "hoy"
+            elif days == 1:
+                last_scan = "hace 1 día"
+            elif days < 7:
+                last_scan = f"hace {days} días"
+            elif days < 30:
+                weeks = days // 7
+                last_scan = f"hace {weeks} semana{'s' if weeks > 1 else ''}"
+            elif days < 365:
+                months = days // 30
+                last_scan = f"hace {months} mes{'es' if months > 1 else ''}"
+            else:
+                years = days // 365
+                last_scan = f"hace {years} año{'s' if years > 1 else ''}"
+
             stats[region_id] = {
                 "doc_count": count,
-                "leakSize": "",  # placeholder
-                "last_scan": ""   # placeholder
+                "leakSize": leak_size,
+                "last_scan": last_scan
             }
         except Exception as e:
-            print(f"Error getting count for {index}: {e}")
+            print(f"Error getting stats for {index}: {e}")
             stats[region_id] = {
                 "doc_count": 0,
-                "leakSize": "",
-                "last_scan": ""
+                "leakSize": "0.0 GB",
+                "last_scan": "desconocido"
             }
 
     return jsonify(stats)
