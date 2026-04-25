@@ -3,7 +3,6 @@ import israelLogo from './assets/branding/israel.png';
 import Header from './components/Header';
 import VulnerabilityMap from './components/VulnerabilityMap';
 import StatisticsPanel from './components/StatisticsPanel';
-import { mockVulnerabilityData } from './data/mockData';
 import type { VulnerabilityData } from './data/mockData';
 
 import LoadingScreen from './components/LoadingScreen';
@@ -12,6 +11,7 @@ import { EnciclopediaModal } from './components/EnciclopediaModal';
 import Login from './components/Login';
 import LogoutModal from './components/LogoutModal';
 import ProfileView from './components/ProfileView';
+import { useElasticsearchStats } from './hooks/useElasticsearchStats';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -39,7 +39,9 @@ const App: React.FC = () => {
   const [licenseType, setLicenseType] = useState<string>('');
   const [profileData, setProfileData] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [statsLoaded, setStatsLoaded] = useState(false);
+
+  // Real-time Elasticsearch stats
+  const { data: vulnerabilityData, loading: statsLoading } = useElasticsearchStats();
 
   React.useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -67,25 +69,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     refreshProfileData();
-
-    // Fetch dynamic stats for countries
-    fetch('/api/stats')
-      .then(res => res.json())
-      .then(stats => {
-        if (stats && typeof stats === 'object') {
-          mockVulnerabilityData.forEach(region => {
-            if (stats[region.id]) {
-              region.docs = stats[region.id].doc_count || 0;
-              if (stats[region.id].leakSize) {
-                region.leakSize = stats[region.id].leakSize;
-              }
-              region.lastScan = stats[region.id].last_scan || region.lastScan;
-            }
-          });
-          setStatsLoaded(true); // force re-render
-        }
-      })
-      .catch(err => console.error("Error fetching stats:", err));
   }, []);
 
   const handleLoginSuccess = (data: any) => {
@@ -207,6 +190,7 @@ const App: React.FC = () => {
           selectedRegion={selectedRegionData}
           compareWithId={compareWithId}
           onCompareChange={setCompareWithId}
+          data={vulnerabilityData}
         />
 
 
@@ -219,7 +203,8 @@ const App: React.FC = () => {
         )}
 
         <VulnerabilityMap
-          key={statsLoaded ? 'loaded' : 'initial'}
+          key={statsLoading ? 'loading' : 'loaded'}
+          data={vulnerabilityData}
           onSelectRegion={handleSelectRegion}
           selectedRegionId={selectedRegionId}
           compareWithId={compareWithId}
@@ -232,6 +217,7 @@ const App: React.FC = () => {
             isClosing={isClosingRegion}
             compareWithId={compareWithId}
             onClose={() => handleSelectRegion(null)}
+            data={vulnerabilityData}
           />
         )}
 
