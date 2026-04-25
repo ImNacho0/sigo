@@ -74,25 +74,71 @@ func getRelativeTime(t time.Time) string {
 	}
 }
 
-// handleStats devuelve las estadísticas de todos los países desde el cache
+// handleStats devuelve las estadísticas de todos los países
+// Combina doc_count real de Python API con leakSize/last_scan del cache
 func handleStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// Get real doc counts from Python API
+	req, err := http.NewRequest("GET", BackendURL+"/stats", nil)
+	if err != nil {
+		http.Error(w, "Error creando petición", http.StatusInternalServerError)
+		return
+	}
+
+	// Add backend bearer token for authentication
+	req.Header.Set("Authorization", "Bearer "+BearerToken)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Fallback to cache if API is down
+		statsCacheMux.RLock()
+		statsWithRelativeTime := make(map[string]CountryStats)
+		for countryID, stat := range statsCache {
+			statCopy := stat
+			statCopy.LastScan = getRelativeTime(stat.LastScanTime)
+			statsWithRelativeTime[countryID] = statCopy
+		}
+		statsCacheMux.RUnlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(statsWithRelativeTime)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Parse Python API response
+	var apiStats map[string]CountryStats
+	if err := json.NewDecoder(resp.Body).Decode(&apiStats); err != nil {
+		http.Error(w, "Error parseando respuesta de API", http.StatusInternalServerError)
+		return
+	}
+
+	// Merge: use doc_count from API, but leakSize and last_scan from cache
 	statsCacheMux.RLock()
-	// Crear una copia con fechas relativas calculadas en tiempo real
-	statsWithRelativeTime := make(map[string]CountryStats)
-	for countryID, stat := range statsCache {
-		statCopy := stat
-		statCopy.LastScan = getRelativeTime(stat.LastScanTime)
-		statsWithRelativeTime[countryID] = statCopy
+	mergedStats := make(map[string]CountryStats)
+	for countryID, apiStat := range apiStats {
+		merged := apiStat // Start with API data (has doc_count)
+
+		// Override with cached leakSize and last_scan if available
+		if cachedStat, exists := statsCache[countryID]; exists {
+			merged.LeakSize = cachedStat.LeakSize
+			merged.LastScan = getRelativeTime(cachedStat.LastScanTime)
+		} else {
+			// No cache entry, use relative time for API data
+			merged.LastScan = "desconocido"
+		}
+
+		mergedStats[countryID] = merged
 	}
 	statsCacheMux.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(statsWithRelativeTime)
+	json.NewEncoder(w).Encode(mergedStats)
 }
 
 // handleStatsInvalidate actualiza las estadísticas cuando el indexer termina
