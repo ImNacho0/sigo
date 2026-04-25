@@ -207,9 +207,9 @@ func securityMiddleware(next http.Handler) http.Handler {
 		// Content Security Policy (CSP)
 		csp := "default-src 'self'; " +
 			"script-src 'self' 'unsafe-inline'; " +
-			"style-src 'self' 'unsafe-inline'; " +
+			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
 			"img-src 'self' data: https://*.basemaps.cartocdn.com https://flagcdn.com; " +
-			"font-src 'self'; " + // Only local fonts
+			"font-src 'self' https://fonts.gstatic.com; " +
 			"connect-src 'self' https://unpkg.com; " +
 			"frame-ancestors 'none'; " +
 			"base-uri 'self'; " +
