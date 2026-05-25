@@ -27,6 +27,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             const data = await response.json();
 
             if (response.ok) {
+                localStorage.setItem('operator_key', key);
                 // Subtle delay for "verification" feel without heavy animation
                 setTimeout(() => {
                     onLoginSuccess(data);

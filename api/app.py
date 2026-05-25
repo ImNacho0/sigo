@@ -68,7 +68,7 @@ def search_esp():
 
     try:
         res = es.search(
-            index="espana",
+            index="espana,padronespana",
             body={
                 "query": {
                     "match": {"content": {"query": query, "operator": "and"}}

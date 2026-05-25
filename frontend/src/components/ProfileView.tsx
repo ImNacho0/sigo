@@ -1,5 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Key, Copy, Activity, Crown, User, Database, Search, Eye, EyeOff, Cpu, Globe, Zap } from 'lucide-react';
+
+const copyToClipboard = (text: string): boolean => {
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (err) {
+        console.warn("navigator.clipboard.writeText failed, trying fallback", err);
+    }
+    try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.top = "0";
+        textArea.style.left = "0";
+        textArea.style.position = "fixed";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+    } catch (err) {
+        console.error("Fallback copy failed", err);
+        return false;
+    }
+};
 
 interface ProfileViewProps {
     onBack: () => void;
@@ -13,13 +40,27 @@ interface ProfileViewProps {
 const ProfileView: React.FC<ProfileViewProps> = ({ onBack, profileData, licenseName, licenseRole, licenseType, isClosing }) => {
     const [showKey, setShowKey] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [advancedEnabled, setAdvancedEnabled] = useState(localStorage.getItem('advanced_search_enabled') === 'true');
+
+    // Monitor storage for real-time updates from SearchWidget
+    useEffect(() => {
+        const checkSetting = () => {
+            setAdvancedEnabled(localStorage.getItem('advanced_search_enabled') === 'true');
+        };
+        window.addEventListener('storage', checkSetting);
+        const interval = setInterval(checkSetting, 1000);
+        return () => {
+            window.removeEventListener('storage', checkSetting);
+            clearInterval(interval);
+        };
+    }, []);
 
     const safeProfile = profileData || {};
 
     const role = licenseRole || safeProfile.role || 'user';
     const name = licenseName || safeProfile.name || 'OPERADOR';
     const type = licenseType || safeProfile.type || safeProfile.license_type || 'N/A';
-    const key = safeProfile.key || '';
+    const key = localStorage.getItem('operator_key') || safeProfile.key || '';
 
     // Explicitly check for fields in safeProfile (prioritizing backend data)
     const used_search = safeProfile.used_search !== undefined ? safeProfile.used_search : 0;
@@ -27,11 +68,14 @@ const ProfileView: React.FC<ProfileViewProps> = ({ onBack, profileData, licenseN
     const used_padron = safeProfile.used_padron !== undefined ? safeProfile.used_padron : 0;
     const quota_padron = safeProfile.quota_padron !== undefined ? safeProfile.quota_padron : 0;
 
+
     const handleCopy = () => {
         if (key) {
-            navigator.clipboard.writeText(key);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            const success = copyToClipboard(key);
+            if (success) {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }
         }
     };
 
@@ -154,7 +198,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ onBack, profileData, licenseN
                         {/* Identity Card */}
                         <div className="glass-card" style={{ borderRadius: '24px', padding: '32px', position: 'relative', overflow: 'hidden' }}>
                             {/* Decorative Icon in background */}
-                            <Crown size={120} style={{ position: 'absolute', right: '-20px', bottom: '-20px', opacity: 0.03, transform: 'rotate(-15deg)', color: '#fff' }} />
+                            <Crown size={120} style={{ position: 'absolute', right: '-20px', bottom: '-20px', opacity: 0.03, transform: 'rotate(-15deg)', color: '#fff', pointerEvents: 'none' }} />
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginBottom: '32px' }}>
                                 <div style={{
@@ -203,7 +247,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ onBack, profileData, licenseN
                             </div>
 
                             {/* License Key Section */}
-                            <div style={{ marginTop: '32px' }}>
+                            <div>
                                 <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px', paddingLeft: '4px' }}>Token de Acceso Seguro (UCO)</div>
                                 <div style={{
                                     display: 'flex',
@@ -228,21 +272,105 @@ const ProfileView: React.FC<ProfileViewProps> = ({ onBack, profileData, licenseN
                                     </span>
                                     <div style={{ display: 'flex', gap: '8px' }}>
                                         <button
-                                            onClick={() => setShowKey(!showKey)}
-                                            style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#fff', cursor: 'pointer', width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                            onMouseDown={() => setShowKey(true)}
+                                            onMouseUp={() => setShowKey(false)}
+                                            onMouseLeave={(e) => {
+                                                setShowKey(false);
+                                                e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                                            }}
+                                            onTouchStart={() => setShowKey(true)}
+                                            onTouchEnd={() => setShowKey(false)}
+                                            style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#fff', cursor: 'pointer', width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', userSelect: 'none' }}
                                             onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                                         >
                                             {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
                                         </button>
                                         <button
                                             onClick={handleCopy}
-                                            style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: copied ? '#10b981' : '#fff', cursor: 'pointer', width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                                            style={{ 
+                                                background: copied ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.05)', 
+                                                border: copied ? '1px solid rgba(16, 185, 129, 0.3)' : 'none', 
+                                                color: copied ? '#10b981' : '#fff', 
+                                                cursor: 'pointer', 
+                                                width: '40px', 
+                                                height: '40px', 
+                                                borderRadius: '10px', 
+                                                display: 'flex', 
+                                                alignItems: 'center', 
+                                                justifyContent: 'center', 
+                                                transition: 'all 0.2s',
+                                                boxShadow: copied ? '0 0 10px rgba(16, 185, 129, 0.2)' : 'none'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                if (!copied) e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                if (!copied) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                                            }}
                                         >
                                             <Copy size={18} />
                                         </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Field Settings Section */}
+                        <div className="glass-card" style={{ borderRadius: '24px', padding: '32px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                                <div style={{ width: '40px', height: '40px', background: 'rgba(0, 240, 255, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Zap size={20} color="var(--accent-cyan)" />
+                                </div>
+                                <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', margin: 0 }}>Configuración de Campo</h3>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                <div 
+                                    onClick={() => {
+                                        const newVal = localStorage.getItem('advanced_search_enabled') === 'true' ? 'false' : 'true';
+                                        localStorage.setItem('advanced_search_enabled', newVal);
+                                        
+                                        // Force re-render of listeners (like SearchWidget)
+                                        window.dispatchEvent(new Event('storage'));
+                                        
+                                        // Local state update for immediate feedback
+                                        setAdvancedEnabled(newVal === 'true');
+                                    }}
+                                    style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        justifyContent: 'space-between',
+                                        padding: '16px',
+                                        background: 'rgba(255, 255, 255, 0.02)',
+                                        border: '1px solid rgba(255, 255, 255, 0.05)',
+                                        borderRadius: '16px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.3s'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff' }}>Búsqueda Avanzada (España)</span>
+                                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Investigación recursiva automática (Coste: 3 búsquedas)</span>
+                                    </div>
+                                    <div style={{ 
+                                        width: '44px', 
+                                        height: '24px', 
+                                        background: advancedEnabled ? 'rgba(0, 240, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                                        border: `1px solid ${advancedEnabled ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.2)'}`,
+                                        borderRadius: '20px',
+                                        position: 'relative',
+                                        transition: 'all 0.3s'
+                                    }}>
+                                        <div style={{ 
+                                            width: '16px', 
+                                            height: '16px', 
+                                            background: advancedEnabled ? 'var(--accent-cyan)' : '#888',
+                                            borderRadius: '50%',
+                                            position: 'absolute',
+                                            top: '3px',
+                                            left: advancedEnabled ? '24px' : '3px',
+                                            transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                                        }} />
                                     </div>
                                 </div>
                             </div>
