@@ -100,6 +100,7 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     setIsClosingLogoutModal(true);
+    localStorage.removeItem('operator_key');
     try {
       await fetch('/auth/logout', { method: 'POST' });
     } catch (e) {
@@ -180,6 +181,7 @@ const App: React.FC = () => {
 
       {showEnciclopedia && <EnciclopediaModal onClose={() => setShowEnciclopedia(false)} />}
 
+
       {showSettings && (
         <ProfileView
           onBack={handleCloseSettings}
@@ -206,6 +208,7 @@ const App: React.FC = () => {
           compareWithId={compareWithId}
           onCompareChange={setCompareWithId}
         />
+
 
         {showLogoutModal && (
           <LogoutModal

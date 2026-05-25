@@ -48,6 +48,7 @@ cd ..
 
 echo [4/6] Building Frontend (Vite)...
 cd frontend
+call pnpm install
 call npm run build
 if %errorlevel% neq 0 (
     echo [ERROR] Frontend build failed!

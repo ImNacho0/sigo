@@ -32,7 +32,7 @@ function authMiddleware(): Plugin {
           const key = body.key;
 
           try {
-            const licensesPath = path.resolve(__dirname, 'licenses.json');
+            const licensesPath = path.resolve(__dirname, '..', 'licenses.json');
             const licensesData = JSON.parse(fs.readFileSync(licensesPath, 'utf-8'));
 
             // Check if key exists (as root object keys or inside them)
@@ -86,7 +86,7 @@ function authMiddleware(): Plugin {
           }
 
           try {
-            const licensesPath = path.resolve(__dirname, 'licenses.json');
+            const licensesPath = path.resolve(__dirname, '..', 'licenses.json');
             const licensesData = JSON.parse(fs.readFileSync(licensesPath, 'utf-8'));
             const lic = licensesData[sessionKey];
 
@@ -98,7 +98,7 @@ function authMiddleware(): Plugin {
             }
 
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ key: lic.key, name: lic.name, role: lic.role }));
+            res.end(JSON.stringify(lic));
             return;
           } catch (e) {
             res.statusCode = 500;
@@ -113,6 +113,40 @@ function authMiddleware(): Plugin {
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ status: "ok" }));
           return;
+        }
+
+        if (req.url === '/auth/quota-fix' && req.method === 'POST') {
+          const body = await getBody();
+          const sessionKey = getCookie('UCO_SESSION');
+          
+          if (!sessionKey || !body.originalUsed) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: "Invalid request" }));
+            return;
+          }
+
+          try {
+            const licensesPath = path.resolve(__dirname, '..', 'licenses.json');
+            const licensesData = JSON.parse(fs.readFileSync(licensesPath, 'utf-8'));
+            const lic = licensesData[sessionKey];
+
+            if (lic) {
+              // The user wants a FIXED cost of 3 per advanced search.
+              // We set the used_search to: (what it was before the search started) + 3.
+              lic.used_search = body.originalUsed + 3;
+              
+              fs.writeFileSync(licensesPath, JSON.stringify(licensesData, null, 2));
+              console.log(`[QUOTA] License ${sessionKey} adjusted to cost exactly 3 units.`);
+              
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ status: "ok", used_search: lic.used_search }));
+              return;
+            }
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: "Error updating quota" }));
+            return;
+          }
         }
 
         next();

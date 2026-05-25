@@ -587,7 +587,12 @@ const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ region, onClose, isCl
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 {[
                                     { label: 'Volumen Datos', val1: region.leakSize, val2: compareRegion.leakSize, icon: <HardDrive size={14} /> },
-                                    { label: 'Registros', val1: formatNumber(region.filteredPopulation), val2: formatNumber(compareRegion.filteredPopulation), icon: <Users size={14} /> },
+                                    { 
+                                        label: 'Registros', 
+                                        val1: formatNumber(region.id === 'es' ? 387867856 : region.filteredPopulation), 
+                                        val2: formatNumber(compareRegion.id === 'es' ? 387867856 : compareRegion.filteredPopulation), 
+                                        icon: <Users size={14} /> 
+                                    },
                                     { label: 'Población Total', val1: formatNumber(region.totalPopulation), val2: formatNumber(compareRegion.totalPopulation), icon: <Users size={14} /> },
                                     { label: '% Afectado', val1: `${region.filteredDataPercentage}%`, val2: `${compareRegion.filteredDataPercentage}%`, icon: <Activity size={14} /> },
                                     { label: 'Cotización Base', val1: region.censusPrice, val2: compareRegion.censusPrice, icon: <Shield size={14} /> },
