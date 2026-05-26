@@ -100,6 +100,16 @@ Se ha implementado un **GitHub Action** en el repositorio `sigo-release` que aut
 | 9050 | Tor SOCKS Proxy |
 | 9200 | Elasticsearch |
 
+## Búsqueda avanzada (España)
+
+Endpoint `POST /gateway` con `target: "advanced-search"` y body `{ "query": "..." }`. Responde con `text/event-stream` (SSE).
+
+- Cobra una sola vez `AdvancedSearchCost` unidades (default `3`) sobre `UsedSearch` de la licencia, de forma atómica (`manager_license.go::CheckQuotaAdvanced`). Si no caben, devuelve 403 antes de abrir el stream.
+- Orquestación 100% en Go (`server/handlers_advanced.go`). Habla directo con Elasticsearch vía `_msearch` usando `ES_HOST`/`ES_USER`/`ES_PASSWD` (el server ahora también lee esas vars del `.env`). La fase del padrón sigue llamando al endpoint Python `/padronesp` para preservar anti-scrap + AI.
+- Eventos SSE emitidos: `quota`, `person`, `phase`, `log`, `tab`, `error`, `done`. El consumidor está en `frontend/src/components/SearchResultsModal.tsx::runAdvancedSearchSSE`.
+- Cache: cada sub-query (initial, variantes, identificadores fuertes) se escribe en `globalCache` con la misma clave que usa `proxyRequest`, de modo que una búsqueda manual posterior por ese identificador es un cache HIT instantáneo. El límite de `globalCache` está a 200 entradas.
+- Para cambiar el costo, editar `AdvancedSearchCost` en `server/config.go`.
+
 ## Añadir un nuevo país de búsqueda
 
 1. En `api/app.py`: Añadir nueva ruta `/searchXXX` apuntando al índice ES correspondiente.

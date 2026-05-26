@@ -26,6 +26,14 @@ var (
 	DiscordSearchWebhook string
 	DiscordChatWebhook   string
 	DiscordBrandColor    = 0x1a4031 // Dark Green from branding
+
+	// Elasticsearch (direct access from Go, used by advanced-search)
+	ESHost   string
+	ESUser   string
+	ESPasswd string
+
+	// Advanced Search cost in QuotaSearch units (atomic charge per session)
+	AdvancedSearchCost = 3
 )
 
 // Runtime tokens for inbound bridge security (configured via environment)
@@ -83,7 +91,7 @@ func (c *APICache) Set(key string, data []byte, statusCode int) {
 	c.order = append(c.order, key)
 }
 
-var globalCache = NewAPICache(100)
+var globalCache = NewAPICache(200)
 
 func init() {
 	// Register WebP MIME type (Correcting from WP2 experiment)
@@ -107,6 +115,11 @@ func init() {
 
 	// Setup runtime tokens for inbound Discord bridge
 	DiscordBridgeToken = os.Getenv("DISCORD_BRIDGE_TOKEN")
+
+	// Elasticsearch credentials (direct access for advanced-search)
+	ESHost = getEnvOrDefault("ES_HOST", "")
+	ESUser = getEnvOrDefault("ES_USER", "")
+	ESPasswd = getEnvOrDefault("ES_PASSWD", "")
 
 	// Match Python logic for INCIVE_FILES
 	for i := 1; i <= 52; i++ {
