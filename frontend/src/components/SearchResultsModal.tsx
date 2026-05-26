@@ -36,6 +36,7 @@ interface SearchResultsModalProps {
     isClosing?: boolean;
 }
 
+// Kept for legacy helpers below (no longer dispatched from this component).
 interface ExtractionResult {
     type: 'DNI' | 'NIE' | 'Phone' | 'Email' | 'IBAN' | 'Plate' | 'Name' | 'Address';
     value: string;
@@ -120,7 +121,9 @@ const parsePadronHtml = (htmlString: string) => {
 
 const normalizeText = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-const generateVariants = (input: string) => {
+// Legacy: variant generation now runs on the server (advanced_helpers.go).
+// Kept here for reference until the next cleanup pass.
+const _generateVariants = (input: string) => {
     const variants = new Set<string>();
     const trimmed = input.trim();
     const normalized = normalizeText(trimmed);
@@ -193,7 +196,8 @@ const generateVariants = (input: string) => {
     return Array.from(variants);
 };
 
-const extractData = (data: any): ExtractionResult[] => {
+// Legacy: identifier extraction runs on the server (advanced_helpers.go).
+const _extractData = (data: any): ExtractionResult[] => {
     const text = JSON.stringify(data);
     const resultsMap = new Map<string, ExtractionResult>();
     const patterns = {
@@ -247,6 +251,7 @@ const extractData = (data: any): ExtractionResult[] => {
     }
     return Array.from(resultsMap.values());
 };
+void _generateVariants; void _extractData; // legacy refs, see advanced_helpers.go
 
 const flattenObject = (obj: any, prefix = ''): any => {
     if (!obj || typeof obj !== 'object') return { [prefix]: obj };
@@ -399,21 +404,6 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
         });
     };
 
-    const addPerson = (name: string, searchQuery: string) => {
-        setPeople(prev => {
-            const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-            const id = normalizedName.replace(/\s+/g, '_');
-            if (prev.find(p => p.name === normalizedName)) return prev;
-            return [...prev, {
-                id, name: normalizedName, query: searchQuery,
-                tabs: [{ id: 'original', label: 'Original', type: 'original', results: [] }],
-                activeTabId: 'original', assistantLogs: [{ time: new Date().toLocaleTimeString(), message: `Iniciando investigación para: ${normalizedName}`, type: 'info' }],
-                isProcessing: false, newTabsCount: 0, visitedQueries: new Set(), seenResultsContent: new Set(),
-                showNoResultsBadge: false, initialProcessDone: false
-            }];
-        });
-    };
-
     useEffect(() => {
         if (parsedData) {
             let initialHitsRaw = [];
@@ -470,169 +460,120 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
         } catch (e) { return null; }
     };
 
-    const performSearch = async (q: string, personIdx: number): Promise<any[]> => {
-        const normalizedQ = q.trim().toUpperCase();
-        if (normalizedQ === 'A@A.COM') return []; // BLOQUEO DE EMAIL DE PRUEBA
-        if (peopleRef.current[personIdx]?.visitedQueries.has(normalizedQ)) return [];
-        setPeople(prev => {
-            const next = [...prev];
-            if (next[personIdx]) {
-                next[personIdx].visitedQueries = new Set(next[personIdx].visitedQueries);
-                next[personIdx].visitedQueries.add(normalizedQ);
-            }
-            return next;
-        });
-        const targets = ['searchesp', 'padronesp'];
-        let allHits: any[] = [];
-        for (const target of targets) {
-            try {
-                addLog(`Consultando motor [${target}] para: ${q}...`, 'info', undefined, personIdx);
-                const payload = target === 'padronesp' ? { nombre: q } : { query: q };
-                const response = await fetch('/gateway', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target, data: payload }) });
-                if (!response.ok) continue;
-                const data = await response.json();
-                let hits = [];
-                if (Array.isArray(data)) hits = data;
-                else if (data.hits?.hits) hits = data.hits.hits.map((h: any) => h._source || h);
-                else if (data.data) hits = Array.isArray(data.data) ? data.data : [data.data];
-                else if (data.results) hits = Array.isArray(data.results) ? data.results : [data.results];
-                if (hits.length > 0) {
-                    addLog(`Motor [${target}] devolvió ${hits.length} resultados.`, 'success', undefined, personIdx);
-                    allHits = [...allHits, ...hits];
-                }
-            } catch (e) { addLog(`Fallo en motor [${target}]: ${e}`, 'warning', undefined, personIdx); }
-        }
-        if (country === 'España') {
-            allHits = allHits.filter((h: any) => !shouldFilterSpainHit(h));
-        }
-        const filtered = allHits.filter(h => {
-            const key = getResultKey(h);
-            const currentP = peopleRef.current[personIdx];
-            return currentP && !currentP.seenResultsContent.has(key);
-        });
-        if (filtered.length > 0) {
-            setPeople(prev => {
-                const next = [...prev];
-                if (next[personIdx]) {
-                    next[personIdx].seenResultsContent = new Set(next[personIdx].seenResultsContent);
-                    filtered.forEach(h => next[personIdx].seenResultsContent.add(getResultKey(h)));
-                }
-                return next;
-            });
-        }
-        return filtered.map(h => flattenObject(h));
-    };
+    // ============== ADVANCED SEARCH (SSE) ==============
+    // The backend (/gateway target="advanced-search") streams progress events:
+    //   quota | person | tab | log | phase | error | done
+    // Mirrors the legacy runAssistant/processPerson flow, but the whole
+    // investigation runs on the server in a single charged session.
 
-    const processPerson = async (personIdx: number) => {
-        setPeople(prev => {
-            const next = [...prev];
-            if (next[personIdx]) next[personIdx].isProcessing = true;
-            return next;
-        });
-        try {
-            const p = peopleRef.current[personIdx];
-            if (!p) return;
-            addLog(`🔍 Iniciando rastreo avanzado para: ${p.name}`, 'info', undefined, personIdx);
-            if (p.tabs[0].results.length === 0) {
-                addLog(`📡 Realizando búsqueda inicial para: ${p.name}...`, 'info', undefined, personIdx);
-                const initialResults = await performSearch(p.query, personIdx);
-                if (initialResults.length > 0) {
-                    setPeople(prev => {
-                        const next = [...prev];
-                        if (next[personIdx]) {
-                            const newTabs = [...next[personIdx].tabs];
-                            newTabs[0] = { ...newTabs[0], results: initialResults };
-                            next[personIdx].tabs = newTabs;
-                        }
-                        return next;
-                    });
-                }
-            }
-            const variants = generateVariants(p.query);
-            if (variants.length > 0) {
-                const variantResults = await Promise.all(variants.map(v => performSearch(v, personIdx)));
-                const flattenedVariants = variantResults.flat();
-                if (flattenedVariants.length > 0) {
-                    setPeople(prev => {
-                        const next = [...prev];
-                        if (next[personIdx]) next[personIdx].tabs = [...next[personIdx].tabs, { id: 'variants', label: 'Variantes', type: 'variants', results: flattenedVariants }];
-                        return next;
-                    });
-                }
-            }
-            const latestP = peopleRef.current[personIdx];
-            const allInitialResults = latestP.tabs.flatMap((t: any) => t.results);
-            let discovered = extractData(allInitialResults);
-            for (let i = 1; i <= 2; i++) {
-                const currentPState = peopleRef.current[personIdx];
-                const strongIdentifiers = discovered.filter(d => d.isStrong && !currentPState.visitedQueries.has(d.value.toUpperCase())).slice(0, 7).map(d => d.value);
-                if (strongIdentifiers.length === 0) break;
-                addLog(`🔥 Iteración ${i}: Investigando ${strongIdentifiers.length} vectores críticos...`, 'info', strongIdentifiers, personIdx);
-                await Promise.all(strongIdentifiers.map(async (id) => {
-                    const idVariants = strongIdentifiers.length <= 5 ? generateVariants(id) : [];
-                    const allQueries = [id, ...idVariants];
-                    const queryHits = await Promise.all(allQueries.map(q => performSearch(q, personIdx)));
-                    const hits = queryHits.flat();
-                    if (hits.length > 0) {
-                        setPeople(prev => {
-                            const next = [...prev];
-                            const currP = next[personIdx];
-                            if (currP && !currP.tabs.find(t => t.id === id) && currP.tabs.length < 15) currP.tabs = [...currP.tabs, { id: id, label: id, type: 'strong', results: hits }];
-                            return next;
-                        });
-                        discovered = [...discovered, ...extractData(hits)];
+    const handleSSEEvent = (event: string, data: any) => {
+        switch (event) {
+            case 'quota':
+                window.dispatchEvent(new CustomEvent('quota-updated', { detail: data }));
+                break;
+            case 'person':
+                setPeople(prev => {
+                    if (prev[data.personIdx]) return prev;
+                    const next = [...prev];
+                    while (next.length < data.personIdx) {
+                        next.push(null as any);
                     }
-                }));
-            }
-            addLog("🏁 Investigación finalizada correctamente.", "success", undefined, personIdx);
-        } catch (e: any) { addLog(`❌ Error en el proceso: ${e.message}`, 'warning', undefined, personIdx); }
-        finally {
-            setPeople(prev => {
-                const next = [...prev];
-                if (next[personIdx]) next[personIdx].isProcessing = false;
-                return next;
-            });
+                    next[data.personIdx] = {
+                        id: data.id, name: data.name, query: data.query,
+                        tabs: [],
+                        activeTabId: 'original', assistantLogs: [{ time: new Date().toLocaleTimeString(), message: `Iniciando investigación para: ${data.name}`, type: 'info' }],
+                        isProcessing: true, newTabsCount: 0,
+                        visitedQueries: new Set(), seenResultsContent: new Set(),
+                        showNoResultsBadge: false, initialProcessDone: true,
+                    };
+                    return next;
+                });
+                break;
+            case 'tab':
+                setPeople(prev => {
+                    const next = [...prev];
+                    const p = next[data.personIdx];
+                    if (!p) return prev;
+                    if (p.tabs.find(t => t.id === data.tabId)) return prev;
+                    p.tabs = [...p.tabs, { id: data.tabId, label: data.label, type: data.type, results: data.results || [] }];
+                    return next;
+                });
+                break;
+            case 'log':
+                addLog(data.message, data.type || 'info', data.payload, data.personIdx ?? 0);
+                break;
+            case 'phase':
+                // Currently informational; the UI infers progress from logs/tabs.
+                break;
+            case 'error':
+                addLog(`❌ ${data.message}`, 'warning', undefined, data.personIdx ?? 0);
+                break;
+            case 'done':
+                setPeople(prev => prev.map(p => p ? ({ ...p, isProcessing: false }) : p));
+                break;
         }
     };
 
-    const runAssistant = async () => {
-        if (country !== 'España' || peopleRef.current[0].initialProcessDone) return;
+    const runAdvancedSearchSSE = async () => {
+        if (country !== 'España') return;
         if (localStorage.getItem('advanced_search_enabled') !== 'true') return;
+        const target0 = peopleRef.current[0];
+        if (!target0 || target0.initialProcessDone) return;
+
         setPeople(prev => {
             const next = [...prev];
-            if (next[0]) next[0].initialProcessDone = true;
+            if (next[0]) {
+                next[0].initialProcessDone = true;
+                next[0].isProcessing = true;
+            }
             return next;
         });
-        let initialUsed = 0;
-        try { const res = await fetch('/auth/status'); if (res.ok) initialUsed = (await res.json()).used_search || 0; } catch (e) {}
-        await processPerson(0);
+
         try {
-            const res = await fetch('/gateway', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'padronesp', data: { nombre: query } }) });
-            if (res.ok) {
-                const padronData = await res.json();
-                const padronDirecciones = parsePadronHtml(padronData.text || '')?.direcciones || [];
-                const discoveredNames = new Set<string>();
-                padronDirecciones.forEach(dir => dir.personas.forEach((p: any) => { if (p.nombre.trim().toUpperCase() !== query.trim().toUpperCase()) discoveredNames.add(p.nombre.trim()); }));
-                Array.from(discoveredNames).slice(0, 5).forEach(name => addPerson(name, name));
+            const res = await fetch('/gateway', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+                body: JSON.stringify({ target: 'advanced-search', data: { query } }),
+            });
+            if (!res.ok || !res.body) {
+                let msg = `GATEWAY_ERROR: ${res.status}`;
+                try { msg = (await res.json()).error || msg; } catch (_) {}
+                addLog(`❌ ${msg}`, 'warning', undefined, 0);
+                setPeople(prev => prev.map(p => p ? ({ ...p, isProcessing: false }) : p));
+                return;
             }
-        } catch (e) {}
-        try { await fetch('/auth/quota-fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ originalUsed: initialUsed }) }); } catch (e) {}
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buf.indexOf('\n\n')) >= 0) {
+                    const frame = buf.slice(0, idx);
+                    buf = buf.slice(idx + 2);
+                    const eventLine = frame.match(/^event:\s*(.+)$/m)?.[1];
+                    const dataLine = frame.match(/^data:\s*(.+)$/m)?.[1];
+                    if (!eventLine || !dataLine) continue;
+                    try {
+                        const parsed = JSON.parse(dataLine);
+                        handleSSEEvent(eventLine.trim(), parsed);
+                    } catch (_) { /* malformed frame */ }
+                }
+            }
+        } catch (e: any) {
+            addLog(`❌ Error en el stream: ${e.message}`, 'warning', undefined, 0);
+            setPeople(prev => prev.map(p => p ? ({ ...p, isProcessing: false }) : p));
+        }
     };
 
     useEffect(() => {
         if (country !== 'España') return;
-        people.forEach((p, idx) => {
-            if (!p.initialProcessDone) {
-                setPeople(prev => {
-                    const next = [...prev];
-                    if (next[idx]) next[idx].initialProcessDone = true;
-                    return next;
-                });
-                if (idx === 0) runAssistant();
-                else processPerson(idx);
-            }
-        });
-    }, [people, country]);
+        if (localStorage.getItem('advanced_search_enabled') !== 'true') return;
+        if (!people[0] || people[0].initialProcessDone) return;
+        runAdvancedSearchSSE();
+    }, [country, people]);
 
     const handleSimplify = async () => {
         setSimplifyingStatus(prev => ({ ...prev, [currentKey]: true }));

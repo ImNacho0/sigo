@@ -137,6 +137,16 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
         setResults(null);
         setDniResult(null);
 
+        // Advanced search (Spain only) skips the initial /gateway hit so the
+        // session costs exactly AdvancedSearchCost units, not +1. The modal
+        // opens empty and the backend streams everything via SSE.
+        if (region.id === 'es' && isAdvancedEnabled && !isPadronMode && !isDniTool) {
+            setResults({ _advanced: true });
+            setShowModal(true);
+            setLoading(false);
+            return;
+        }
+
         try {
             const payload = isPadronMode ? { nombre: query } : { query: query };
             const response = await fetch(`/gateway`, {

@@ -40,6 +40,26 @@ func handleGateway(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// advanced-search has its own atomic quota (AdvancedSearchCost units)
+	// and streams via SSE. Branch BEFORE the regular per-request CheckQuota.
+	if req.Target == "advanced-search" {
+		if licenseKey == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Licencia requerida"})
+			return
+		}
+		if err := licenseManager.CheckQuotaAdvanced(licenseKey, AdvancedSearchCost); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleAdvancedSearch(w, r, licenseKey)
+		return
+	}
+
 	if licenseKey != "" {
 		isPadron := req.Target == "padronesp"
 		if err := licenseManager.CheckQuota(licenseKey, isPadron); err != nil {
