@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Search, Database, ShieldAlert, Sparkles, Loader2, Terminal, Users, Calendar, Activity, ChevronLeft, ChevronRight, RotateCcw, Home, MapPin, User } from 'lucide-react';
+import { X, Search, Database, ShieldAlert, Sparkles, Loader2, Terminal, Users, Calendar, Activity, ChevronLeft, ChevronRight, RotateCcw, User, Shield } from 'lucide-react';
 
 const copyToClipboard = (text: string): boolean => {
     try {
@@ -36,7 +36,9 @@ interface SearchResultsModalProps {
     isClosing?: boolean;
 }
 
-// Kept for legacy helpers below (no longer dispatched from this component).
+// Kept for the legacy helpers below (no longer dispatched from this
+// component — variant generation and identifier extraction now live on the
+// server in advanced_helpers.go).
 interface ExtractionResult {
     type: 'DNI' | 'NIE' | 'Phone' | 'Email' | 'IBAN' | 'Plate' | 'Name' | 'Address';
     value: string;
@@ -297,10 +299,14 @@ const shouldFilterSpainHit = (hit: any): boolean => {
 };
 
 const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query, country, onClose, isClosing }) => {
+    // When advanced-search is the trigger, the parent (SearchWidget) opens the
+    // modal without firing the regular /gateway hit, so there are no initial
+    // hits — the backend will stream the "original" tab via SSE.
+    const isAdvancedInitial = !!(results && results._advanced);
     const [people, setPeople] = useState<SearchPerson[]>([{
         id: 'initial', name: query.toUpperCase(), query: query,
-        tabs: [{ id: 'original', label: 'Original', type: 'original', results: [] }],
-        activeTabId: 'original', assistantLogs: [], isProcessing: false, newTabsCount: 0,
+        tabs: isAdvancedInitial ? [] : [{ id: 'original', label: 'Original', type: 'original', results: [] }],
+        activeTabId: 'original', assistantLogs: [], isProcessing: isAdvancedInitial, newTabsCount: 0,
         visitedQueries: new Set(), seenResultsContent: new Set(), showNoResultsBadge: false, initialProcessDone: false
     }]);
     const [activePersonIndex, setActivePersonIndex] = useState(0);
@@ -324,6 +330,30 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
     const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
 
     const [copiedLogs, setCopiedLogs] = useState(false);
+
+    const [selectedAddressIdx, setSelectedAddressIdx] = useState(0);
+    const [hoveredResidentId, setHoveredResidentId] = useState<string | null>(null);
+    const [selectedResidentName, setSelectedResidentName] = useState<string | null>(null);
+    const [copiedNuc, setCopiedNuc] = useState<string | null>(null);
+
+    useEffect(() => {
+        setSelectedAddressIdx(0);
+        setSelectedResidentName(null);
+        setCopiedNuc(null);
+    }, [activeTabId, activePersonIndex]);
+
+    useEffect(() => {
+        setSelectedResidentName(null);
+        setCopiedNuc(null);
+    }, [selectedAddressIdx]);
+
+    const handleCopyNuc = (nuc: string) => {
+        const success = copyToClipboard(nuc);
+        if (success) {
+            setCopiedNuc(nuc);
+            setTimeout(() => setCopiedNuc(null), 2000);
+        }
+    };
 
     const activeTab = tabs.find(t => t.id === activeTabId);
     const resultsToRender = activeTab?.results || [];
@@ -405,28 +435,32 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
     };
 
     useEffect(() => {
-        if (parsedData) {
-            let initialHitsRaw = [];
-            if (parsedData.direcciones) initialHitsRaw = [parsedData];
-            else if (Array.isArray(parsedData)) initialHitsRaw = parsedData;
-            else if (parsedData.results) initialHitsRaw = parsedData.results;
-            else if (parsedData.hits?.hits) initialHitsRaw = parsedData.hits.hits.map((h: any) => h._source || h);
-            else initialHitsRaw = [parsedData];
+        if (!parsedData) return;
+        // Advanced-search path: the original tab arrives via SSE, never from
+        // this parser. Skip so the synthetic { _advanced: true } never becomes
+        // a fake hit row.
+        if (parsedData._advanced) return;
 
-            if (country === 'España') {
-                initialHitsRaw = initialHitsRaw.filter((h: any) => !shouldFilterSpainHit(h));
-            }
+        let initialHitsRaw = [];
+        if (parsedData.direcciones) initialHitsRaw = [parsedData];
+        else if (Array.isArray(parsedData)) initialHitsRaw = parsedData;
+        else if (parsedData.results) initialHitsRaw = parsedData.results;
+        else if (parsedData.hits?.hits) initialHitsRaw = parsedData.hits.hits.map((h: any) => h._source || h);
+        else initialHitsRaw = [parsedData];
 
-            const originalResults = initialHitsRaw.map((h: any) => flattenObject(h));
-            setPeople([{
-                id: 'initial', name: query.toUpperCase(), query: query,
-                tabs: [{ id: 'original', label: 'Original', type: 'original', results: originalResults }],
-                activeTabId: 'original', assistantLogs: [], isProcessing: false, newTabsCount: 0,
-                visitedQueries: new Set(), seenResultsContent: new Set(initialHitsRaw.map((h: any) => getResultKey(h))),
-                showNoResultsBadge: false, initialProcessDone: false
-            }]);
-            setActivePersonIndex(0);
+        if (country === 'España') {
+            initialHitsRaw = initialHitsRaw.filter((h: any) => !shouldFilterSpainHit(h));
         }
+
+        const originalResults = initialHitsRaw.map((h: any) => flattenObject(h));
+        setPeople([{
+            id: 'initial', name: query.toUpperCase(), query: query,
+            tabs: [{ id: 'original', label: 'Original', type: 'original', results: originalResults }],
+            activeTabId: 'original', assistantLogs: [], isProcessing: false, newTabsCount: 0,
+            visitedQueries: new Set(), seenResultsContent: new Set(initialHitsRaw.map((h: any) => getResultKey(h))),
+            showNoResultsBadge: false, initialProcessDone: false
+        }]);
+        setActivePersonIndex(0);
     }, [results, query, parsedData]);
 
     const peopleRef = useRef(people);
@@ -458,6 +492,62 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
             if (!result.nombre_completo) result.nombre_completo = 'REGISTRO BOLIVIA';
             return result;
         } catch (e) { return null; }
+    };
+
+    // Manually adds a person to the side panel (e.g. clicking "Investigar"
+    // on a padrón cohabitant). Triggers a single regular searchesp lookup to
+    // populate the "original" tab — costs 1 quota unit, NOT linked to the
+    // advanced-search session.
+    const addPerson = async (name: string, searchQuery: string) => {
+        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+        const id = normalizedName.replace(/\s+/g, '_');
+        let newIdx = -1;
+        setPeople(prev => {
+            if (prev.find(p => p && p.name === normalizedName)) return prev;
+            newIdx = prev.length;
+            return [...prev, {
+                id, name: normalizedName, query: searchQuery,
+                tabs: [{ id: 'original', label: 'Original', type: 'original', results: [] }],
+                activeTabId: 'original',
+                assistantLogs: [{ time: new Date().toLocaleTimeString(), message: `Iniciando búsqueda para: ${normalizedName}`, type: 'info' }],
+                isProcessing: true, newTabsCount: 0,
+                visitedQueries: new Set(), seenResultsContent: new Set(),
+                showNoResultsBadge: false, initialProcessDone: true,
+            }];
+        });
+        if (newIdx < 0) return;
+        try {
+            const res = await fetch('/gateway', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: 'searchesp', data: { query: searchQuery } }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                let hits: any[] = [];
+                if (Array.isArray(data)) hits = data;
+                else if (data.hits?.hits) hits = data.hits.hits.map((h: any) => h._source || h);
+                else if (data.results) hits = Array.isArray(data.results) ? data.results : [data.results];
+                if (country === 'España') {
+                    hits = hits.filter((h: any) => !shouldFilterSpainHit(h));
+                }
+                const flat = hits.map((h: any) => flattenObject(h));
+                setPeople(prev => {
+                    const next = [...prev];
+                    if (next[newIdx]) {
+                        next[newIdx].tabs = [{ id: 'original', label: 'Original', type: 'original', results: flat }];
+                        next[newIdx].isProcessing = false;
+                    }
+                    return next;
+                });
+            } else {
+                addLog(`❌ Búsqueda fallida (${res.status})`, 'warning', undefined, newIdx);
+                setPeople(prev => prev.map((p, i) => i === newIdx && p ? ({ ...p, isProcessing: false }) : p));
+            }
+        } catch (e: any) {
+            addLog(`❌ ${e.message}`, 'warning', undefined, newIdx);
+            setPeople(prev => prev.map((p, i) => i === newIdx && p ? ({ ...p, isProcessing: false }) : p));
+        }
     };
 
     // ============== ADVANCED SEARCH (SSE) ==============
@@ -494,7 +584,15 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                     const next = [...prev];
                     const p = next[data.personIdx];
                     if (!p) return prev;
-                    if (p.tabs.find(t => t.id === data.tabId)) return prev;
+                    const existingIdx = p.tabs.findIndex(t => t.id === data.tabId);
+                    if (existingIdx >= 0) {
+                        // Replace if empty (e.g. seed "original" tab), otherwise keep.
+                        if (p.tabs[existingIdx].results.length === 0) {
+                            p.tabs = [...p.tabs];
+                            p.tabs[existingIdx] = { id: data.tabId, label: data.label, type: data.type, results: data.results || [] };
+                        }
+                        return next;
+                    }
                     p.tabs = [...p.tabs, { id: data.tabId, label: data.label, type: data.type, results: data.results || [] }];
                     return next;
                 });
@@ -991,7 +1089,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                 }
                 .spain-resident-card:hover::after {
                     opacity: 1;
-                    animation: laserScan 2s infinite linear;
+                    animation: laserScan 8s infinite linear;
                 }
                 @keyframes laserScan {
                     0% { top: 0%; }
@@ -1029,13 +1127,541 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                     border-color: rgba(0, 240, 255, 0.3);
                     color: var(--accent-cyan);
                 }
+
+                /* RADICAL SPAIN PADRON STYLES */
+                .spain-address-card {
+                    background: rgba(255, 255, 255, 0.02);
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                .spain-address-card:hover {
+                    background: rgba(0, 240, 255, 0.03) !important;
+                    border-color: rgba(0, 240, 255, 0.2) !important;
+                    transform: translateY(-2px);
+                    box-shadow: 0 10px 25px -10px rgba(0, 240, 255, 0.1);
+                }
+                .spain-address-card.active {
+                    background: rgba(0, 240, 255, 0.06) !important;
+                    border-color: rgba(0, 240, 255, 0.4) !important;
+                    box-shadow: 0 10px 30px -10px rgba(0, 240, 255, 0.15), inset 0 0 15px rgba(0, 240, 255, 0.05);
+                }
+                
+                .address-card-scanner {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 2px;
+                    height: 100%;
+                    background: linear-gradient(180deg, transparent, rgba(0, 240, 255, 0.2), transparent);
+                    animation: scannerHorizontal 8s infinite linear;
+                    pointer-events: none;
+                }
+                .spain-address-card.active.target-active .address-card-scanner {
+                    background: linear-gradient(180deg, transparent, rgba(255, 42, 95, 0.2), transparent);
+                }
+                
+                @keyframes scannerHorizontal {
+                    0% { left: 0%; }
+                    50% { left: 100%; }
+                    100% { left: 0%; }
+                }
+
+                .isometric-house-svg {
+                    overflow: visible;
+                }
+                .house-base-ellipse {
+                    fill: none;
+                    stroke: rgba(255, 255, 255, 0.05);
+                    stroke-width: 1.5;
+                    stroke-dasharray: 4, 3;
+                    transition: all 0.3s ease;
+                }
+                .spain-address-card:hover .house-base-ellipse {
+                    stroke: rgba(0, 240, 255, 0.15);
+                }
+                .spain-address-card.active .house-base-ellipse {
+                    stroke: rgba(0, 240, 255, 0.25);
+                }
+                .house-inner-ellipse {
+                    fill: rgba(255, 255, 255, 0.01);
+                    stroke: rgba(255, 255, 255, 0.1);
+                    stroke-width: 1;
+                    transition: all 0.3s ease;
+                }
+                .spain-address-card:hover .house-inner-ellipse {
+                    fill: rgba(0, 240, 255, 0.02);
+                    stroke: rgba(0, 240, 255, 0.2);
+                }
+                .spain-address-card.active .house-inner-ellipse {
+                    fill: rgba(0, 240, 255, 0.04);
+                    stroke: rgba(0, 240, 255, 0.4);
+                }
+                .house-wall {
+                    fill: rgba(11, 17, 32, 0.85);
+                    stroke: rgba(255, 255, 255, 0.15);
+                    stroke-width: 1.5;
+                    transition: all 0.3s ease;
+                }
+                .house-wall.left {
+                    fill: rgba(7, 12, 24, 0.9);
+                }
+                .spain-address-card:hover .house-wall {
+                    stroke: rgba(0, 240, 255, 0.5);
+                    fill: rgba(11, 24, 48, 0.9);
+                }
+                .spain-address-card.active .house-wall {
+                    stroke: rgba(0, 240, 255, 0.8);
+                    fill: rgba(0, 240, 255, 0.05);
+                }
+                .house-roof {
+                    fill: rgba(255, 255, 255, 0.03);
+                    stroke: rgba(255, 255, 255, 0.2);
+                    stroke-width: 1.5;
+                    transition: all 0.3s ease;
+                }
+                .spain-address-card:hover .house-roof {
+                    fill: rgba(0, 240, 255, 0.08);
+                    stroke: rgba(0, 240, 255, 0.6);
+                }
+                .spain-address-card.active .house-roof {
+                    fill: rgba(0, 240, 255, 0.15);
+                    stroke: #00f0ff;
+                }
+                .house-door {
+                    fill: rgba(255, 255, 255, 0.05);
+                    stroke: rgba(255, 255, 255, 0.25);
+                    stroke-width: 1;
+                    transition: all 0.3s ease;
+                }
+                .spain-address-card:hover .house-door {
+                    fill: rgba(0, 240, 255, 0.1);
+                    stroke: rgba(0, 240, 255, 0.5);
+                }
+                .spain-address-card.active .house-door {
+                    fill: rgba(255, 42, 95, 0.15);
+                    stroke: #ff2a5f;
+                }
+                .house-window {
+                    fill: rgba(255, 255, 255, 0.02);
+                    stroke: rgba(255, 255, 255, 0.2);
+                    stroke-width: 1;
+                    transition: all 0.3s ease;
+                }
+                .spain-address-card:hover .house-window {
+                    fill: rgba(0, 240, 255, 0.3);
+                    stroke: rgba(0, 240, 255, 0.8);
+                }
+                .spain-address-card.active .house-window {
+                    fill: #00f0ff;
+                    stroke: #fff;
+                    filter: drop-shadow(0 0 4px #00f0ff);
+                }
+                .house-antenna {
+                    stroke: rgba(255, 255, 255, 0.3);
+                    stroke-width: 1.2;
+                    transition: all 0.3s ease;
+                }
+                .spain-address-card:hover .house-antenna {
+                    stroke: rgba(0, 240, 255, 0.6);
+                }
+                .spain-address-card.active .house-antenna {
+                    stroke: #00f0ff;
+                    stroke-width: 1.5;
+                }
+                .house-antenna-orb {
+                    fill: rgba(255, 255, 255, 0.4);
+                    transition: all 0.3s ease;
+                }
+                .spain-address-card:hover .house-antenna-orb {
+                    fill: #00f0ff;
+                }
+                .spain-address-card.active .house-antenna-orb {
+                    fill: #ff2a5f;
+                }
+
+                /* Network canvas graphics */
+                .network-canvas-container {
+                    position: relative;
+                    height: 380px;
+                    background: radial-gradient(circle at 50% 50%, rgba(10, 18, 42, 0.4) 0%, rgba(4, 6, 12, 0.95) 100%);
+                    border: 1px solid rgba(255, 255, 255, 0.04);
+                    border-radius: 16px;
+                    overflow: hidden;
+                    display: flex;
+                    align-items: center;
+                    justifyContent: center;
+                }
+                
+                .network-radar-grid {
+                    position: absolute;
+                    width: 320px;
+                    height: 320px;
+                    border: 1px dashed rgba(0, 240, 255, 0.04);
+                    border-radius: 50%;
+                    pointer-events: none;
+                    z-index: 0;
+                }
+                .network-radar-grid.inner {
+                    width: 180px;
+                    height: 180px;
+                }
+                .network-radar-grid.outer {
+                    width: 250px;
+                    height: 250px;
+                }
+                .network-radar-grid.sweep {
+                    width: 350px;
+                    height: 350px;
+                    border: 1px solid rgba(0, 240, 255, 0.02);
+                    background: conic-gradient(from 0deg, rgba(0, 240, 255, 0.012) 0deg, transparent 90deg, transparent 360deg);
+                    animation: spinClockwise 25s infinite linear;
+                }
+                
+                .network-connecting-line {
+                    background: linear-gradient(90deg, rgba(0, 240, 255, 0.35) 0%, rgba(0, 240, 255, 0.03) 100%);
+                    pointer-events: none;
+                }
+                .network-connecting-line.family {
+                    background: linear-gradient(90deg, rgba(255, 196, 0, 0.35) 0%, rgba(255, 196, 0, 0.03) 100%);
+                }
+                .network-connecting-line.other {
+                    background: linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.01) 100%);
+                }
+
+                .line-pulse-particle {
+                    position: absolute;
+                    top: -3px;
+                    left: 0;
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
+                    background: #00f0ff;
+                    box-shadow: 0 0 4px #00f0ff;
+                    animation: flowParticle 1.2s infinite linear;
+                    will-change: transform;
+                }
+                .network-connecting-line.family .line-pulse-particle {
+                    background: #ffc400;
+                    box-shadow: 0 0 6px #ffc400;
+                }
+                .network-connecting-line.other .line-pulse-particle {
+                    background: rgba(255, 255, 255, 0.5);
+                    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+                }
+
+                @keyframes flowParticle {
+                    0% { transform: translateX(0); opacity: 0; }
+                    8% { opacity: 1; }
+                    92% { opacity: 1; }
+                    100% { transform: translateX(92px); opacity: 0; }
+                }
+
+                @keyframes waveMove {
+                    0% { stroke-dashoffset: 0; }
+                    100% { stroke-dashoffset: -120; }
+                }
+                .telemetry-wave-anim {
+                    stroke-dasharray: 40, 20;
+                    animation: waveMove 4s infinite linear;
+                }
+
+                @keyframes spinClockwise {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                @keyframes spinCounterClockwise {
+                    from { transform: rotate(360deg); }
+                    to { transform: rotate(0deg); }
+                }
+
+                .center-node-target-ring {
+                    position: absolute;
+                    top: -8px;
+                    left: -8px;
+                    right: -8px;
+                    bottom: -8px;
+                    border: 1px dashed rgba(255, 42, 95, 0.4);
+                    border-radius: 50%;
+                    animation: spinClockwise 35s infinite linear;
+                }
+                .center-node-target-ring::before {
+                    content: '';
+                    position: absolute;
+                    top: 50%;
+                    left: -3px;
+                    width: 6px;
+                    height: 6px;
+                    background: #ff2a5f;
+                    border-radius: 50%;
+                    box-shadow: 0 0 4px rgba(255, 42, 95, 0.4);
+                }
+
+                .resident-node-pulse {
+                    position: absolute;
+                    top: -6px;
+                    left: -6px;
+                    right: -6px;
+                    bottom: -6px;
+                    border: 1.5px solid;
+                    border-radius: 50%;
+                    opacity: 0;
+                    animation: ringPulse 4.5s infinite cubic-bezier(0.215, 0.610, 0.355, 1);
+                }
+
+                @keyframes ringPulse {
+                    0% { transform: scale(0.95); opacity: 0.8; }
+                    50% { opacity: 0.3; }
+                    100% { transform: scale(1.3); opacity: 0; }
+                }
+                
+                .network-resident-node:hover {
+                    transform: scale(1.15);
+                    box-shadow: 0 0 25px rgba(255, 255, 255, 0.3) !important;
+                }
+
+                /* Dossier fingerprint & scanner styles */
+                .fingerprint-container {
+                    position: relative;
+                    overflow: hidden;
+                    background: rgba(0, 0, 0, 0.25);
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    border-radius: 12px;
+                    padding: 12px;
+                    display: flex;
+                    align-items: center;
+                    justifyContent: center;
+                    width: 104px;
+                    height: 104px;
+                }
+                .fingerprint-laser {
+                    position: absolute;
+                    left: 0;
+                    width: 100%;
+                    height: 2px;
+                    background: #00f0ff;
+                    box-shadow: 0 0 4px rgba(0, 240, 255, 0.4);
+                    animation: laserScanVertical 8s infinite ease-in-out;
+                    pointer-events: none;
+                }
+                .fingerprint-container.target .fingerprint-laser {
+                    background: #ff2a5f;
+                    box-shadow: 0 0 8px #ff2a5f;
+                }
+                .fingerprint-container.family .fingerprint-laser {
+                    background: #ffc400;
+                    box-shadow: 0 0 4px rgba(255, 196, 0, 0.4);
+                }
+                
+                @keyframes laserScanVertical {
+                    0% { top: 0%; }
+                    50% { top: 100%; }
+                    100% { top: 0%; }
+                }
+                
+                .spain-dossier-terminal {
+                    background: rgba(13, 20, 38, 0.45);
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    box-shadow: inset 0 0 30px rgba(0, 240, 255, 0.01);
+                    backdrop-filter: blur(12px);
+                    border-radius: 16px;
+                    display: flex;
+                }
+                
+                /* TACTICAL HORIZONTAL LAYOUT STYLES */
+                .spain-padron-layout-container {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 16px;
+                    margin-top: 5px;
+                }
+                
+                .spain-padron-workspace {
+                    display: flex;
+                    flex-direction: column;
+                    background: rgba(13, 20, 38, 0.25);
+                    border: 1px solid rgba(255, 255, 255, 0.04);
+                    border-radius: 16px;
+                    padding: 16px;
+                    position: relative;
+                    box-shadow: inset 0 0 20px rgba(0, 240, 255, 0.01);
+                }
+                
+                .spain-subject-dossier-card {
+                    background: rgba(13, 20, 38, 0.45);
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    box-shadow: inset 0 0 20px rgba(0, 240, 255, 0.015);
+                    backdrop-filter: blur(12px);
+                    border-radius: 16px;
+                    padding: 20px;
+                    position: relative;
+                }
+                
+                .view-mode-toggle-bar {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 16px;
+                    flex-shrink: 0;
+                }
+                
+                .view-mode-toggle-btn {
+                    background: rgba(255, 255, 255, 0.03);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    color: rgba(255, 255, 255, 0.5);
+                    padding: 6px 14px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    letter-spacing: 1px;
+                    font-family: "'JetBrains Mono', monospace";
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .view-mode-toggle-btn.active {
+                    background: rgba(0, 240, 255, 0.1) !important;
+                    border-color: rgba(0, 240, 255, 0.3) !important;
+                    color: var(--accent-cyan) !important;
+                    box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+                }
+                .view-mode-toggle-btn:hover {
+                    color: #fff;
+                    background: rgba(255, 255, 255, 0.06);
+                }
+                
+                /* ANALYTICS TABLE STYLES */
+                .spain-analytics-table-container {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding-right: 4px;
+                }
+                
+                .spain-analytics-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    text-align: left;
+                }
+                
+                .spain-analytics-table th {
+                    font-size: 9px;
+                    font-weight: 900;
+                    color: rgba(255, 255, 255, 0.35);
+                    letter-spacing: 1.5px;
+                    font-family: "'JetBrains Mono', monospace";
+                    text-transform: uppercase;
+                    padding: 10px 14px;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+                }
+                
+                .spain-analytics-row {
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+                    transition: all 0.2s ease;
+                    cursor: pointer;
+                }
+                .spain-analytics-row:hover {
+                    background: rgba(255, 255, 255, 0.02) !important;
+                }
+                .spain-analytics-row.active {
+                    background: rgba(0, 240, 255, 0.03) !important;
+                }
+                .spain-analytics-row.target-row {
+                    background: rgba(255, 42, 95, 0.01);
+                }
+                .spain-analytics-row.target-row:hover {
+                    background: rgba(255, 42, 95, 0.03) !important;
+                }
+                .spain-analytics-row.target-row.active {
+                    background: rgba(255, 42, 95, 0.05) !important;
+                }
+                
+                .spain-analytics-cell {
+                    padding: 12px 14px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #e2e8f0;
+                    vertical-align: middle;
+                    position: relative;
+                }
+                
+                .row-relation-indicator {
+                    position: absolute;
+                    left: 0;
+                    top: 15%;
+                    width: 3px;
+                    height: 70%;
+                    border-radius: 0 4px 4px 0;
+                }
+                
+                /* Mini compact progress bar */
+                .mini-age-progress-bar {
+                    width: 60px;
+                    height: 4px;
+                    background: rgba(255, 255, 255, 0.06);
+                    border-radius: 2px;
+                    overflow: hidden;
+                    margin-top: 4px;
+                }
+                
+                .row-action-btn {
+                    background: rgba(255,255,255,0.03);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    color: rgba(255,255,255,0.5);
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    font-size: 9px;
+                    font-weight: 800;
+                    font-family: "'JetBrains Mono', monospace";
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    outline: none;
+                }
+                .row-action-btn:hover {
+                    background: rgba(255,255,255,0.08);
+                    border-color: rgba(255,255,255,0.15);
+                    color: #fff;
+                }
+                .row-action-btn.copy-btn.copied {
+                    background: rgba(16, 185, 129, 0.1) !important;
+                    border-color: rgba(16, 185, 129, 0.3) !important;
+                    color: #10b981 !important;
+                    box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+                }
+                .row-action-btn.recurse-btn {
+                    background: rgba(255, 42, 95, 0.03);
+                    border-color: rgba(255, 42, 95, 0.15);
+                    color: rgba(255, 42, 95, 0.7);
+                }
+                .row-action-btn.recurse-btn:hover {
+                    background: rgba(255, 42, 95, 0.1) !important;
+                    border-color: rgba(255, 42, 95, 0.3) !important;
+                    color: #ff2a5f !important;
+                    box-shadow: 0 0 8px rgba(255, 42, 95, 0.15);
+                }
+                
+                .spain-analytics-row .row-actions-container {
+                    opacity: 0;
+                    transform: translateX(6px);
+                    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                
+                .spain-analytics-row:hover .row-actions-container {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                
+                .hover-copy-btn {
+                    opacity: 0;
+                    transition: all 0.2s ease;
+                }
+                
+                .spain-analytics-row:hover .hover-copy-btn {
+                    opacity: 1;
+                }
             `}</style>
-            <div className={`glass-panel custom-scrollbar ${isClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`} style={{ width: '100%', maxWidth: '1200px', height: '85vh', display: 'flex', flexDirection: 'column', background: 'rgba(11, 17, 32, 0.98)', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '16px', overflow: 'hidden' }}>
+            <div className={`glass-panel custom-scrollbar ${isClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`} style={{ width: '95vw', maxWidth: '1380px', height: '85vh', display: 'flex', flexDirection: 'column', background: 'rgba(11, 17, 32, 0.98)', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '16px', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 40px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                         <div style={{ width: '48px', height: '48px', background: 'rgba(0, 240, 255, 0.05)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(0, 240, 255, 0.2)' }}><Search size={22} color="var(--accent-cyan)" /></div>
                         <div>
-                            <h1 className="mono" style={{ fontSize: '22px', fontWeight: 900, margin: 0, letterSpacing: '4px', color: '#fff' }}>{country.toUpperCase()}</h1>
+                            <h1 className="mono" style={{ fontSize: '22px', fontWeight: 900, margin: '0 0 6px 0', letterSpacing: '4px', color: '#fff' }}>{country.toUpperCase()}</h1>
                             <div className="mono" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.6 }}><Database size={10} /> ENTIDAD ACTUAL: <strong style={{ color: 'var(--accent-cyan)' }}>"{activePerson.name}"</strong></div>
                         </div>
                     </div>
@@ -1081,12 +1707,19 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                                 <button className="tab-nav-btn" disabled={!canScrollRight} onClick={() => scrollTabs('right')}><ChevronRight size={18} /></button>
                             </div>
                         )}
-                        <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
-                            <div style={{ background: 'rgba(255, 200, 0, 0.04)', border: '1px solid rgba(255, 200, 0, 0.2)', padding: '16px 24px', borderRadius: '12px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                <ShieldAlert size={20} color="#ffc400" />
-                                <div style={{ fontSize: '13px', color: 'rgba(255, 200, 0, 0.8)', fontWeight: 600, letterSpacing: '0.3px' }}><strong>AVISO DE SEGURIDAD:</strong> Datos sensibles procedentes de filtraciones gubernamentales. Uso estrictamente profesional.</div>
-                            </div>
-                            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '16px', padding: '32px' }}>
+                        <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: country === 'España' ? '24px 40px 16px 40px' : '24px 32px' }}>
+                            {country !== 'España' && (
+                                <div style={{ background: 'rgba(255, 200, 0, 0.04)', border: '1px solid rgba(255, 200, 0, 0.2)', padding: '16px 24px', borderRadius: '12px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                    <ShieldAlert size={20} color="#ffc400" />
+                                    <div style={{ fontSize: '13px', color: 'rgba(255, 200, 0, 0.8)', fontWeight: 600, letterSpacing: '0.3px' }}><strong>AVISO DE SEGURIDAD:</strong> Datos sensibles procedentes de filtraciones gubernamentales. Uso estrictamente profesional.</div>
+                                </div>
+                            )}
+                            <div style={{ 
+                                background: country === 'España' ? 'transparent' : 'rgba(255, 255, 255, 0.01)', 
+                                border: country === 'España' ? 'none' : '1px solid rgba(255, 255, 255, 0.05)', 
+                                borderRadius: '16px', 
+                                padding: country === 'España' ? '0' : '32px' 
+                            }}>
                                 {currentSimplifiedHtml && (
                                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
                                         <button onClick={closeSimplifiedView} className="ai-back-btn"><RotateCcw size={14} /> VOLVER A DATOS ORIGINALES</button>
@@ -1149,96 +1782,479 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                                                 </div>
                                             );
                                         }
-                                        if (country === 'España') {
+
+if (country === 'España') {
                                             const padronData = resultsToRender.find((r: any) => r.direcciones);
                                             if (padronData) {
+                                                const dir = padronData.direcciones[selectedAddressIdx] || padronData.direcciones[0];
+                                                
+                                                // Find objective and active resident
+                                                const objetivo = dir?.personas.find((p: any) => p.relacion?.toLowerCase().includes('objetivo')) || dir?.personas[0];
+                                                const activeResName = selectedResidentName || objetivo?.nombre;
+                                                const activeResident = dir?.personas.find((p: any) => p.nombre === activeResName) || objetivo;
+                                                
+                                                const isObj = activeResident?.relacion?.toLowerCase().includes('objetivo');
+                                                const isFamily = ['madre', 'padre', 'hijo', 'hija', 'hermano', 'hermana', 'conyuge', 'esposo', 'esposa'].some(r => activeResident?.relacion?.toLowerCase().includes(r));
+                                                
+                                                const ageNum = parseInt(activeResident?.edad || '0') || 0;
+                                                const agePercent = Math.min(Math.max((ageNum / 100) * 100, 5), 100);
+
+                                                // Connection strength calculation
+                                                let relationPercentage = '40%';
+                                                if (isObj) {
+                                                    relationPercentage = '100%';
+                                                } else if (isFamily) {
+                                                    relationPercentage = '90%';
+                                                }
+                                                
                                                 return (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '24px' }}>
-                                                        <div className="spain-padron-header">
-                                                            <div>
-                                                                <div style={{ color: 'var(--accent-cyan)', fontSize: '11px', fontWeight: 900, letterSpacing: '3px', marginBottom: '8px', textTransform: 'uppercase', fontFamily: "'JetBrains Mono', monospace" }}>REGISTRO ELECTORAL CIVIL</div>
-                                                                <h2 style={{ fontSize: '28px', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.5px' }}>Núcleos de Convivencia y Censo</h2>
-                                                                <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', margin: '8px 0 0 0' }}>Análisis geo-espacial de vinculación de sujetos empadronados.</p>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: '0', marginTop: '0' }}>
+                                                        
+                                                        <div className="spain-padron-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0, 240, 255, 0.1)', paddingBottom: '14px', marginBottom: '10px' }}>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <div style={{ width: '3px', height: '28px', background: 'linear-gradient(180deg, var(--accent-cyan), transparent)', borderRadius: '2px', flexShrink: 0 }} />
+                                                                    <div>
+                                                                        <div style={{ color: 'var(--accent-cyan)', fontSize: '9px', fontWeight: 900, letterSpacing: '3px', textTransform: 'uppercase', fontFamily: "'JetBrains Mono', monospace", marginBottom: '3px', opacity: 0.8 }}>CENTRO DE CONTROL TÁCTICO DE CENSO</div>
+                                                                        <h2 style={{ fontSize: '22px', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.5px', lineHeight: 1.1 }}>Núcleos de Convivencia y Cohabitación</h2>
+                                                                    </div>
+                                                                </div>
+                                                                <div style={{ marginLeft: '11px', paddingTop: '2px', borderTop: '1px dashed rgba(255,255,255,0.06)', marginTop: '2px' }}>
+                                                                    <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: 0, letterSpacing: '0.3px' }}>Análisis geo-espacial unificado · Uso exclusivo para operaciones autorizadas</p>
+                                                                </div>
                                                             </div>
-                                                            <div className="stat-badge" style={{ padding: '10px 20px', borderRadius: '12px', fontSize: '11px', fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '1px' }}>
-                                                                {padronData.total_personas} CONVIVIENTES VINCULADOS
+                                                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+                                                                <span style={{ fontSize: '10px', fontWeight: 900, color: '#ff2a5f', border: '1px solid rgba(255,42,95,0.3)', padding: '8px 16px', borderRadius: '8px', fontFamily: "'JetBrains Mono', monospace", letterSpacing: '1px', background: 'rgba(255,42,95,0.04)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ff2a5f', display: 'inline-block', boxShadow: '0 0 6px #ff2a5f' }} />
+                                                                    ACCESO RESTRINGIDO N4
+                                                                </span>
+                                                                <div className="stat-badge" style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '10px', fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '1px', background: 'rgba(0,240,255,0.04)', border: '1px solid rgba(0,240,255,0.12)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent-cyan)', display: 'inline-block', boxShadow: '0 0 6px var(--accent-cyan)' }} />
+                                                                    {padronData.total_personas} SUJETOS VINCULADOS
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                        {padronData.direcciones.map((dir: any, dIdx: number) => (
-                                                            <div key={dIdx} className="spain-address-card">
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                                                        <div className="spain-house-badge">
-                                                                            <Home size={26} color="var(--accent-cyan)" />
-                                                                        </div>
-                                                                        <div>
-                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '2px', fontFamily: "'JetBrains Mono', monospace", marginBottom: '4px' }}>
-                                                                                <MapPin size={12} /> {renderHighlightedText(dir.codigo_postal, highlightVal)} • {renderHighlightedText(dir.localizacion, highlightVal)}
+
+                                                        <div className="spain-padron-layout-container">
+                                                            
+                                                            <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '12px' }}>
+                                                                {padronData.direcciones.map((item: any, dIdx: number) => {
+                                                                    const isActive = selectedAddressIdx === dIdx;
+                                                                    const isTargetHere = item.personas.some((p: any) => p.nombre.trim().toUpperCase() === query.trim().toUpperCase());
+                                                                    
+                                                                    return (
+                                                                        <div 
+                                                                            key={dIdx} 
+                                                                            onClick={() => setSelectedAddressIdx(dIdx)}
+                                                                            className={`spain-address-card ${isActive ? 'active' : ''} ${isTargetHere ? 'target-active' : ''}`}
+                                                                            style={{
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: '12px',
+                                                                                cursor: 'pointer',
+                                                                                padding: '12px 20px',
+                                                                                borderRadius: '16px',
+                                                                                position: 'relative',
+                                                                                overflow: 'hidden',
+                                                                                flex: '1 1 280px',
+                                                                                maxWidth: '340px'
+                                                                            }}
+                                                                        >
+                                                                            {isActive && <div className="address-card-scanner" />}
+                                                                            
+                                                                            <div style={{ flexShrink: 0, width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                <svg viewBox="0 0 100 100" className="isometric-house-svg" style={{ width: '38px', height: '38px' }}>
+                                                                                    <ellipse cx="50" cy="75" rx="35" ry="12" className="house-base-ellipse" />
+                                                                                    <ellipse cx="50" cy="75" rx="25" ry="8" className="house-inner-ellipse" />
+                                                                                    <polygon points="50,45 20,57 20,75 50,63" className="house-wall left" />
+                                                                                    <polygon points="50,45 80,57 80,75 50,63" className="house-wall right" />
+                                                                                    <polygon points="50,25 20,37 20,57 50,45" className="house-roof left" />
+                                                                                    <polygon points="50,25 80,37 80,57 50,45" className="house-roof right" />
+                                                                                    <polygon points="60,63 70,67 70,55 60,51" className="house-door" />
+                                                                                    <polygon points="30,61 40,57 40,65 30,69" className="house-window" />
+                                                                                </svg>
                                                                             </div>
-                                                                            <h3 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: '#fff', letterSpacing: '0.5px', lineHeight: 1.2 }}>{renderHighlightedText(dir.direccion, highlightVal)}</h3>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                                        {dir.years.map((y: string, i: number) => (
-                                                                            <div key={i} className="census-tag" style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '9px', fontFamily: "'JetBrains Mono', monospace" }}>
-                                                                                CENSO {y}
+                                                                            
+                                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                                <div style={{ fontSize: '13px', fontWeight: 900, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.3px' }}>
+                                                                                    {item.direccion}
+                                                                                </div>
+                                                                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px', fontSize: '9px', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
+                                                                                    <span style={{ color: 'var(--accent-cyan)' }}>{item.personas.length} INDIVIDUOS</span>
+                                                                                    <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
+                                                                                    <span style={{ color: '#ffc400' }}>CP {item.codigo_postal}</span>
+                                                                                </div>
                                                                             </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
-                                                                    {dir.personas.map((per: any, pIdx: number) => {
-                                                                        const isObjective = per.relacion?.toLowerCase().includes('objetivo');
-                                                                        return (
-                                                                            <div key={pIdx} className={`spain-resident-card ${isObjective ? 'objective' : ''}`}>
-                                                                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                                                                    <div className="spain-avatar-badge">
-                                                                                        <User size={18} />
-                                                                                    </div>
-                                                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                                                        <div style={{ fontSize: '16px', fontWeight: 900, color: isObjective ? 'var(--accent-cyan)' : '#fff', textTransform: 'uppercase', letterSpacing: '0.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                                            {renderHighlightedText(per.nombre, highlightVal)}
-                                                                                        </div>
-                                                                                        {isObjective && (
-                                                                                            <span style={{ fontSize: '9px', color: 'var(--accent-cyan)', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', background: 'rgba(0, 240, 255, 0.08)', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '4px', fontFamily: "'JetBrains Mono', monospace" }}>
-                                                                                                Objetivo
-                                                                                            </span>
-                                                                                        )}
-                                                                                    </div>
-                                                                                    {per.nuc && (
-                                                                                        <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, background: 'rgba(0,0,0,0.4)', padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' }}>
-                                                                                            NUC: {renderHighlightedText(per.nuc, highlightVal)}
-                                                                                        </div>
-                                                                                    )}
-                                                                                </div>
-                                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: 'auto' }}>
-                                                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '12px' }}>
-                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>
-                                                                                            <Calendar size={13} />
-                                                                                            <span style={{ color: '#fff', fontWeight: 600 }}>{renderHighlightedText(per.fecha_nacimiento, highlightVal)}</span>
-                                                                                        </div>
-                                                                                        <div style={{ fontSize: '12px', fontWeight: 900, color: 'var(--accent-cyan)', background: 'rgba(0, 240, 255, 0.05)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(0, 240, 255, 0.1)', fontFamily: "'JetBrains Mono', monospace" }}>
-                                                                                            {per.edad} AÑOS
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: isObjective ? 'rgba(0, 240, 255, 0.05)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isObjective ? 'rgba(0, 240, 255, 0.15)' : 'rgba(255,255,255,0.05)'}`, padding: '8px 12px', borderRadius: '8px' }}>
-                                                                                        <Activity size={12} color={isObjective ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.3)'} />
-                                                                                        <span style={{ fontSize: '10px', color: isObjective ? '#fff' : 'rgba(255,255,255,0.5)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: "'JetBrains Mono', monospace" }}>
-                                                                                            {renderHighlightedText(per.relacion, highlightVal)}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+
+                                                            <div style={{ display: 'flex', gap: '20px', alignItems: 'stretch' }}>
+                                                                
+                                                                 <div className="spain-padron-workspace" style={{ flex: 1.2, height: '370px', display: 'flex', flexDirection: 'column', padding: '12px 20px', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+                                                                    {dir && (
+                                                                        <>
+                                                                            {/* HUD: TOP ADDRESS LABEL */}
+                                                                            <div style={{ position: 'absolute', top: '10px', left: '16px', right: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed rgba(0, 240, 255, 0.15)', paddingBottom: '4px', pointerEvents: 'none', zIndex: 15 }}>
+                                                                                <span style={{ fontSize: '8px', color: 'rgba(0, 240, 255, 0.6)', fontWeight: 900, letterSpacing: '1px', fontFamily: "'JetBrains Mono', monospace" }}>DIRECCIÓN FOCALIZADA:</span>
+                                                                                <span style={{ fontSize: '9.5px', color: '#fff', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '75%' }}>{dir.direccion} <strong style={{ color: '#ffc400' }}>(CP {dir.codigo_postal})</strong></span>
+                                                                            </div>
+
+                                                                        </>
+                                                                    )}
+                                                                    {(() => {
+                                                                        if (!dir) return (
+                                                                            <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'rgba(255,255,255,0.3)', fontStyle: 'italic' }}>
+                                                                                Cargando radar...
                                                                             </div>
                                                                         );
-                                                                    })}
+
+                                                                        const convivientes = dir.personas.filter((p: any) => p !== objetivo);
+                                                                        const totalConv = convivientes.length;
+
+                                                                        return (
+                                                                            <div className="network-canvas-container" style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'transparent', border: 'none', height: '100%', width: '100%' }}>
+                                                                                <div className="network-radar-grid inner" />
+                                                                                <div className="network-radar-grid outer" />
+                                                                                <div className="network-radar-grid sweep" />
+                                                                                
+                                                                                {convivientes.map((per: any, cIdx: number) => {
+                                                                                    const isFamilyLine = ['madre', 'padre', 'hijo', 'hija', 'hermano', 'hermana', 'conyuge', 'esposo', 'esposa'].some(r => per.relacion?.toLowerCase().includes(r));
+                                                                                    return (
+                                                                                        <div 
+                                                                                            key={`line-${cIdx}`}
+                                                                                            className={`network-connecting-line ${isFamilyLine ? 'family' : 'other'}`}
+                                                                                            style={{
+                                                                                                position: 'absolute',
+                                                                                                left: '50%',
+                                                                                                top: '50%',
+                                                                                                width: '92px',
+                                                                                                height: '2px',
+                                                                                                transform: `rotate(${(cIdx * 360) / totalConv}deg)`,
+                                                                                                transformOrigin: 'left center',
+                                                                                                zIndex: 1
+                                                                                            }}
+                                                                                        >
+                                                                                            <div className="line-pulse-particle" />
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                                
+                                                                                <div 
+                                                                                    className="network-center-node"
+                                                                                    onClick={() => setSelectedResidentName(objetivo.nombre)}
+                                                                                    onMouseEnter={() => setHoveredResidentId(objetivo.nombre)}
+                                                                                    onMouseLeave={() => setHoveredResidentId(null)}
+                                                                                    style={{
+                                                                                        position: 'absolute',
+                                                                                        left: 'calc(50% - 27px)',
+                                                                                        top: 'calc(50% - 27px)',
+                                                                                        width: '54px',
+                                                                                        height: '54px',
+                                                                                        borderRadius: '50%',
+                                                                                        background: 'rgba(11, 17, 32, 0.95)',
+                                                                                        border: '3px solid #ff2a5f',
+                                                                                        boxShadow: '0 0 20px rgba(255, 42, 95, 0.4), inset 0 0 10px rgba(255, 42, 95, 0.2)',
+                                                                                        display: 'flex',
+                                                                                        alignItems: 'center',
+                                                                                        justifyContent: 'center',
+                                                                                        cursor: 'pointer',
+                                                                                        zIndex: 12,
+                                                                                        transition: 'all 0.3s ease'
+                                                                                    }}
+                                                                                >
+                                                                                    <div className="center-node-target-ring" />
+                                                                                    <User size={20} color="#fff" />
+                                                                                    
+                                                                                    <div 
+                                                                                        className="resident-node-label"
+                                                                                        style={{
+                                                                                            position: 'absolute',
+                                                                                            top: '58px',
+                                                                                            whiteSpace: 'nowrap',
+                                                                                            fontSize: '9px',
+                                                                                            fontWeight: 900,
+                                                                                            color: '#ff2a5f',
+                                                                                            background: 'rgba(5, 8, 16, 0.95)',
+                                                                                            padding: '2px 6px',
+                                                                                            borderRadius: '4px',
+                                                                                            border: '1px solid rgba(255, 42, 95, 0.3)',
+                                                                                            pointerEvents: 'none',
+                                                                                            fontFamily: "'JetBrains Mono', monospace"
+                                                                                        }}
+                                                                                    >
+                                                                                        {objetivo.nombre.split(' ')[0]} {objetivo.nombre.split(' ')[1]?.[0] || ''}.
+                                                                                    </div>
+                                                                                </div>
+                                                                                
+                                                                                {convivientes.map((per: any, cIdx: number) => {
+                                                                                    const angle = (cIdx * 2 * Math.PI) / totalConv;
+                                                                                    const radius = 92;
+                                                                                    const x = radius * Math.cos(angle);
+                                                                                    const y = radius * Math.sin(angle);
+                                                                                    const isSelected = activeResName === per.nombre;
+                                                                                    const isHovered = hoveredResidentId === per.nombre;
+                                                                                    
+                                                                                    const perFamily = ['madre', 'padre', 'hijo', 'hija', 'hermano', 'hermana', 'conyuge', 'esposo', 'esposa'].some(r => per.relacion?.toLowerCase().includes(r));
+                                                                                    
+                                                                                    let nodeColor = 'var(--accent-cyan)';
+                                                                                    let glowShadow = 'rgba(0, 240, 255, 0.2)';
+                                                                                    if (perFamily) {
+                                                                                        nodeColor = '#ffc400';
+                                                                                        glowShadow = 'rgba(255, 196, 0, 0.2)';
+                                                                                    }
+                                                                                    
+                                                                                    const names = per.nombre.split(' ');
+                                                                                    const initials = (names[0]?.[0] || '') + (names[1]?.[0] || '');
+                                                                                    
+                                                                                    return (
+                                                                                        <div 
+                                                                                            key={cIdx}
+                                                                                            className={`network-resident-node`}
+                                                                                            onClick={() => setSelectedResidentName(per.nombre)}
+                                                                                            onMouseEnter={() => setHoveredResidentId(per.nombre)}
+                                                                                            onMouseLeave={() => setHoveredResidentId(null)}
+                                                                                            style={{
+                                                                                                position: 'absolute',
+                                                                                                left: `calc(50% + ${x}px - 19px)`,
+                                                                                                top: `calc(50% + ${y}px - 19px)`,
+                                                                                                width: '38px',
+                                                                                                height: '38px',
+                                                                                                borderRadius: '50%',
+                                                                                                background: 'rgba(11, 17, 32, 0.95)',
+                                                                                                border: `2px solid ${isSelected ? '#fff' : nodeColor}`,
+                                                                                                boxShadow: isSelected ? `0 0 15px ${nodeColor}, inset 0 0 8px ${nodeColor}` : `0 0 8px ${glowShadow}`,
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                justifyContent: 'center',
+                                                                                                cursor: 'pointer',
+                                                                                                zIndex: 10,
+                                                                                                transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                                                                                            }}
+                                                                                        >
+                                                                                            {isHovered && <div className="resident-node-pulse" style={{ borderColor: nodeColor }} />}
+                                                                                            
+                                                                                            <span style={{ fontSize: '9px', fontWeight: 900, color: '#fff', letterSpacing: '0.5px', fontFamily: "'JetBrains Mono', monospace" }}>
+                                                                                                {initials}
+                                                                                            </span>
+                                                                                            
+                                                                                            <div 
+                                                                                                className="resident-node-label"
+                                                                                                style={{
+                                                                                                    position: 'absolute',
+                                                                                                    top: '42px',
+                                                                                                    whiteSpace: 'nowrap',
+                                                                                                    fontSize: '8.5px',
+                                                                                                    fontWeight: 800,
+                                                                                                    color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)',
+                                                                                                    background: 'rgba(5, 8, 16, 0.9)',
+                                                                                                    padding: '2px 5px',
+                                                                                                    borderRadius: '4px',
+                                                                                                    border: `1px solid ${isSelected ? nodeColor : 'rgba(255,255,255,0.05)'}`,
+                                                                                                    pointerEvents: 'none',
+                                                                                                    fontFamily: "'JetBrains Mono', monospace"
+                                                                                                }}
+                                                                                            >
+                                                                                                {names[0]} {names[1]?.[0] || ''}.
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        );
+                                                                    })()}
+                                                                </div>
+
+                                                                <div className="spain-subject-dossier-card" style={{ flex: 1, height: '370px', display: 'flex', flexDirection: 'column', padding: '16px 20px' }}>
+                                                                    {activeResident ? (
+                                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%' }}>
+                                                                            
+                                                                            {/* HEADER: nombre grande como protagonista */}
+                                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                                                                                <div style={{ minWidth: 0, flex: 1 }}>
+                                                                                    <h3 style={{ margin: '0 0 5px 0', fontSize: '19px', fontWeight: 900, color: '#fff', letterSpacing: '-0.3px', lineHeight: '1.2', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                                        {activeResident.nombre}
+                                                                                    </h3>
+                                                                                    {/* Relación discreta bajo el nombre */}
+                                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                                        <span style={{ fontSize: '11px', fontWeight: 700, color: isObj ? 'rgba(255,42,95,0.8)' : (isFamily ? 'rgba(255,196,0,0.8)' : 'rgba(0,240,255,0.8)'), fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                                                                                            {activeResident.relacion || (isObj ? 'SUJETO PRINCIPAL' : 'COHABITANTE')}
+                                                                                        </span>
+                                                                                        <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'inline-block' }} />
+                                                                                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontFamily: "'JetBrains Mono', monospace" }}>{relationPercentage} vinculación</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                                
+                                                                                <div className={`fingerprint-container ${isObj ? 'target' : (isFamily ? 'family' : '')}`} style={{ flexShrink: 0, width: '50px', height: '50px', padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.3)', border: `1px solid ${isObj ? 'rgba(255,42,95,0.2)' : (isFamily ? 'rgba(255,196,0,0.2)' : 'rgba(255,255,255,0.07)')}`, borderRadius: '10px', position: 'relative', overflow: 'hidden' }}>
+                                                                                    <div className="fingerprint-laser" />
+                                                                                    <svg viewBox="0 0 100 100" style={{ width: '40px', height: '40px', stroke: isObj ? '#ff2a5f' : (isFamily ? '#ffc400' : 'var(--accent-cyan)'), fill: 'none' }}>
+                                                                                        <path d="M 12 2 L 2 2 L 2 12" strokeWidth="2.5" />
+                                                                                        <path d="M 88 2 L 98 2 L 98 12" strokeWidth="2.5" />
+                                                                                        <path d="M 12 98 L 2 98 L 2 88" strokeWidth="2.5" />
+                                                                                        <path d="M 88 98 L 98 98 L 98 88" strokeWidth="2.5" />
+                                                                                        <path d="M 30 70 A 20 20 0 0 1 70 70" strokeWidth="1.8" strokeDasharray="2, 2" />
+                                                                                        <path d="M 25 70 A 25 25 0 0 1 75 70" strokeWidth="1.8" />
+                                                                                        <path d="M 20 70 A 30 30 0 0 1 80 70" strokeWidth="1.8" strokeDasharray="6, 3" />
+                                                                                        <path d="M 35 60 A 15 15 0 0 1 65 60" strokeWidth="2.2" />
+                                                                                        <path d="M 40 50 A 10 10 0 0 1 60 50" strokeWidth="2.2" />
+                                                                                        <path d="M 45 45 A 5 5 0 0 1 55 45" strokeWidth="2.8" />
+                                                                                        <path d="M 50 40 L 50 70" strokeWidth="2.2" />
+                                                                                    </svg>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {/* DIVISOR */}
+                                                                            <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+                                                                            
+                                                                            {/* GRID 2x2: NUC | NACIMIENTO / EDAD | RELACION */}
+                                                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', flex: 1 }}>
+                                                                                
+                                                                                {/* NUC Widget */}
+                                                                                <div style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '4px' }}><Shield size={10} color="var(--accent-cyan)" /> NUC</div>
+                                                                                    <div style={{ fontSize: '14px', color: activeResident.nuc ? '#fff' : 'rgba(255,255,255,0.25)', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeResident.nuc || '—'}</span>
+                                                                                        {activeResident.nuc && (
+                                                                                            <button 
+                                                                                                onClick={() => handleCopyNuc(activeResident.nuc)}
+                                                                                                style={{
+                                                                                                    flexShrink: 0,
+                                                                                                    background: copiedNuc === activeResident.nuc ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.04)',
+                                                                                                    border: `1px solid ${copiedNuc === activeResident.nuc ? '#10b981' : 'rgba(255,255,255,0.12)'}`,
+                                                                                                    color: copiedNuc === activeResident.nuc ? '#10b981' : 'rgba(255,255,255,0.5)',
+                                                                                                    padding: '2px 6px',
+                                                                                                    borderRadius: '4px',
+                                                                                                    fontSize: '8px',
+                                                                                                    fontWeight: 800,
+                                                                                                    cursor: 'pointer',
+                                                                                                    fontFamily: "'JetBrains Mono', monospace"
+                                                                                                }}
+                                                                                            >
+                                                                                                {copiedNuc === activeResident.nuc ? '✓' : 'COPY'}
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {/* DOB Widget */}
+                                                                                <div style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={10} color="var(--accent-cyan)" /> NACIMIENTO</div>
+                                                                                    <div style={{ fontSize: '14px', color: '#fff', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
+                                                                                        {activeResident.fecha_nacimiento || '—'}
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {/* AGE Widget */}
+                                                                                <div style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                                                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '4px' }}><Activity size={10} color="var(--accent-cyan)" /> EDAD</div>
+                                                                                    <div style={{ fontSize: '22px', fontWeight: 900, color: ageNum < 18 ? '#00f0ff' : (ageNum < 65 ? '#10b981' : '#ffc400'), lineHeight: 1, fontFamily: "'JetBrains Mono', monospace" }}>
+                                                                                        {activeResident.edad}<span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginLeft: '4px', fontWeight: 600 }}>años</span>
+                                                                                    </div>
+                                                                                    <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.06)', borderRadius: '100px', overflow: 'hidden' }}>
+                                                                                        <div style={{ width: `${agePercent}%`, height: '100%', background: ageNum < 18 ? '#00f0ff' : (ageNum < 65 ? '#10b981' : '#ffc400'), borderRadius: '100px', transition: 'width 0.8s ease' }} />
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {/* RELACION Widget */}
+                                                                                <div style={{ background: isObj ? 'rgba(255,42,95,0.05)' : (isFamily ? 'rgba(255,196,0,0.05)' : 'rgba(0, 0, 0, 0.25)'), border: `1px solid ${isObj ? 'rgba(255,42,95,0.15)' : (isFamily ? 'rgba(255,196,0,0.15)' : 'rgba(255,255,255,0.06)')}`, borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '4px' }}><Users size={10} color={isObj ? '#ff2a5f' : (isFamily ? '#ffc400' : 'var(--accent-cyan)')} /> RELACIÓN</div>
+                                                                                    <div style={{ fontSize: '13px', color: isObj ? '#ff2a5f' : (isFamily ? '#ffc400' : '#fff'), fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                                                        {activeResident.relacion || 'COHABITANTE'}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {/* CENSOS */}
+                                                                            <div style={{ background: 'rgba(0, 0, 0, 0.2)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                                                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={11} color="var(--accent-cyan)" /> CENSOS REGISTRADOS</span>
+                                                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                                                    {dir.years.map((yr: string, yIdx: number) => (
+                                                                                        <span 
+                                                                                            key={yIdx} 
+                                                                                            style={{ 
+                                                                                                fontSize: '11px', 
+                                                                                                fontWeight: 800, 
+                                                                                                background: 'rgba(0, 240, 255, 0.08)', 
+                                                                                                border: '1px solid rgba(0, 240, 255, 0.2)', 
+                                                                                                color: 'var(--accent-cyan)', 
+                                                                                                padding: '2px 10px', 
+                                                                                                borderRadius: '4px',
+                                                                                                fontFamily: "'JetBrains Mono', monospace"
+                                                                                            }}
+                                                                                        >
+                                                                                            {yr}
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                            
+                                                                            {/* ACTION BLOCK */}
+                                                                            <div style={{ marginTop: '8px' }}>
+                                                                                {!isObj ? (
+                                                                                    <button 
+                                                                                        onClick={() => addPerson(activeResident.nombre, activeResident.nombre)}
+                                                                                        style={{
+                                                                                            width: '100%',
+                                                                                            background: 'rgba(255, 42, 95, 0.05)',
+                                                                                            border: '1px solid rgba(255, 42, 95, 0.3)',
+                                                                                            color: '#ff2a5f',
+                                                                                            padding: '8px 12px',
+                                                                                            borderRadius: '8px',
+                                                                                            fontSize: '10px',
+                                                                                            fontWeight: 800,
+                                                                                            letterSpacing: '1.5px',
+                                                                                            cursor: 'pointer',
+                                                                                            transition: 'all 0.3s ease',
+                                                                                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+                                                                                            display: 'flex',
+                                                                                            alignItems: 'center',
+                                                                                            justifyContent: 'center',
+                                                                                            gap: '6px',
+                                                                                            fontFamily: "'JetBrains Mono', monospace"
+                                                                                        }}
+                                                                                        onMouseEnter={(e) => {
+                                                                                            e.currentTarget.style.background = 'rgba(255, 42, 95, 0.15)';
+                                                                                            e.currentTarget.style.borderColor = 'rgba(255, 42, 95, 0.5)';
+                                                                                            e.currentTarget.style.boxShadow = '0 0 12px rgba(255, 42, 95, 0.3)';
+                                                                                        }}
+                                                                                        onMouseLeave={(e) => {
+                                                                                            e.currentTarget.style.background = 'rgba(255, 42, 95, 0.05)';
+                                                                                            e.currentTarget.style.borderColor = 'rgba(255, 42, 95, 0.3)';
+                                                                                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+                                                                                        }}
+                                                                                    >
+                                                                                        <Activity size={12} /> INVESTIGAR EN RED
+                                                                                    </button>
+                                                                                ) : (
+                                                                                    <div style={{ 
+                                                                                        border: '1px dashed rgba(255,255,255,0.1)', 
+                                                                                        borderRadius: '8px', 
+                                                                                        padding: '8px 12px', 
+                                                                                        textAlign: 'center',
+                                                                                        fontSize: '10px',
+                                                                                        color: 'rgba(255,255,255,0.4)',
+                                                                                        fontFamily: "'JetBrains Mono', monospace",
+                                                                                        letterSpacing: '0.8px',
+                                                                                        textTransform: 'uppercase'
+                                                                                    }}>
+                                                                                        SUJETO CENTRAL FOCALIZADO EN SISTEMA
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'rgba(255,255,255,0.2)', fontSize: '11px', fontStyle: 'italic', textAlign: 'center' }}>
+                                                                            Seleccione un residente del radar para cargar su expediente.
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
-                                                        ))}
+                                                        </div>
                                                     </div>
                                                 );
                                             }
-                                        }
-                                        return (
+                                        }                                        return (
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '24px' }}>
                                                 {resultsToRender.map((source: any, idx: number) => {
                                                     const isBoliviaSql = country === 'Bolivia' && (source.content?.includes('INSERT') || source._source_content?.includes('INSERT'));
