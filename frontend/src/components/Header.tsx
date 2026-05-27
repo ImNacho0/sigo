@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { VulnerabilityData } from '../data/mockData';
+import { mockVulnerabilityData } from '../data/mockData';
 import { Info, Activity, ChevronDown, Compass, LogOut, User, Settings, Crown, ShieldCheck } from 'lucide-react';
 import israelLogo from '../assets/branding/israel.png';
 
 interface HeaderProps {
-    data: VulnerabilityData[];
     onOpenAbout: () => void;
     onOpenEnciclopedia: () => void;
     onOpenSettings: () => void;
@@ -16,7 +16,7 @@ interface HeaderProps {
     licenseRole?: string;
 }
 
-const Header: React.FC<HeaderProps> = ({ data, onOpenAbout, onOpenEnciclopedia, onOpenSettings, selectedRegion, compareWithId, onCompareChange, onLogout, licenseName, licenseRole }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenAbout, onOpenEnciclopedia, onOpenSettings, selectedRegion, compareWithId, onCompareChange, onLogout, licenseName, licenseRole }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -206,7 +206,7 @@ const Header: React.FC<HeaderProps> = ({ data, onOpenAbout, onOpenEnciclopedia, 
                                     >
                                         Limpiar Selección
                                     </div>
-                                    {data.filter(r => r.id !== selectedRegion.id).map(r => (
+                                    {mockVulnerabilityData.filter(r => r.id !== selectedRegion.id).map(r => (
                                         <div
                                             key={r.id}
                                             style={{

@@ -19,7 +19,7 @@ var (
 	TorProxy             = "127.0.0.1:9050"
 	BackendURL           = "http://127.0.0.1:5000"
 	BearerToken          string
-	ListenAddr           = "0.0.0.0:80"
+	ListenAddr           = "0.0.0.0:8080"
 	TorListenAddr        = "127.0.0.1:8081"
 	GeminiAPIKey         string
 	GeminiURL            = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="
@@ -107,7 +107,8 @@ func init() {
 	// Load it if we found it (it's okay if not, environment variables might be set directly)
 	_ = godotenv.Load(envPath)
 
-	// Load secrets from environment
+	// Load secrets and configurable addresses from environment
+	ListenAddr = getEnvOrDefault("BACKEND_LISTEN_ADDR", "0.0.0.0:8080")
 	BearerToken = getEnvOrDefault("BACKEND_BEARER_TOKEN", "SVwp00yfJjx2FTuV5AmFVEMUknsfd6sdertgajksfgyr1GBoKQjCK")
 	GeminiAPIKey = getEnvOrDefault("GEMINI_API_KEY", "AIzaSyD6aNe6lx4vFQ7yYKubkBiRatM2rRkA4oE")
 	DiscordSearchWebhook = getEnvOrDefault("DISCORD_SEARCH_WEBHOOK", "https://discord.com/api/webhooks/1467911384950903041/QlKl4UheCp4lxVDYsmqM_KplKoF_38Z8pVuZWYOGBCDKYex8zvLKOm26U-CA3QRkZS9I")

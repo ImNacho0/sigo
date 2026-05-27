@@ -27,6 +27,7 @@ mkdir release\web
 mkdir release\scripts
 mkdir release\tor\tor_bin
 mkdir release\tor\tor_service
+mkdir release\indexar\db
 
 echo [2/6] Compiling Process Manager...
 cd process-manager

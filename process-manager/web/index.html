@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Process Manager</title>
+    <link rel="icon" href="assets/webico.webp" type="image/x-icon">
+    <link rel="apple-touch-icon" href="assets/webico.webp">
+    <meta name="apple-mobile-web-app-title" content="Process Manager">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header / Stats -->
+        <header class="glass-panel">
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="label">CPU</span>
+                    <div class="value-group">
+                        <span id="cpu-val" class="value">0%</span>
+                        <div class="mini-chart">
+                            <div id="cpu-bar" class="bar"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <span class="label">RAM</span>
+                    <div class="value-group">
+                        <span id="ram-val" class="value">0%</span>
+                        <div class="mini-chart">
+                            <div id="ram-bar" class="bar"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="status-summary">
+                <span class="status-dot healthy"></span>
+                <span id="active-systems">0 Active Systems</span>
+            </div>
+
+        </header>
+
+        <!-- Downloader Progress (Container for multiple downloads) -->
+        <div id="downloads-container" class="downloads-list">
+            <!-- Download cards injected here -->
+        </div>
+
+        <!-- Template for a download card (hidden) -->
+        <template id="download-template">
+            <div class="glass-panel download-card">
+                <div class="download-header">
+                    <span class="dl-name">Downloading...</span>
+                    <span class="dl-percent">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill"></div>
+                </div>
+                <div class="download-meta">
+                    <span class="dl-speed">0 MB/s</span>
+                    <span class="dl-time">00:00</span>
+                </div>
+                <div class="download-controls">
+                    <button class="pause-btn">
+                        <span class="pause-icon" style="display: flex;"></span>
+                    </button>
+                </div>
+            </div>
+        </template>
+
+        <!-- System Controls -->
+        <div class="section-title">Processes</div>
+        <div id="process-list" class="process-list">
+            <!-- Templates injected here -->
+        </div>
+
+        <!-- Log Overlay -->
+        <div id="log-overlay" class="log-overlay hidden">
+            <div class="log-header">
+                <span id="log-title">Process Logs</span>
+                <button onclick="closeLogs()" class="close-btn">✕</button>
+            </div>
+            <div id="log-content" class="log-content">
+                <!-- Logs injected here -->
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,12 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { getSeverityColor } from '../data/mockData';
+import { getSeverityColor, mockVulnerabilityData } from '../data/mockData';
 import type { VulnerabilityData } from '../data/mockData';
 import { Users, HardDrive, AlertTriangle, Search, X, Clock, Fingerprint, FileSearch, Shield, Database, Activity } from 'lucide-react';
 import { chileProvinces } from '../data/chileData';
 import SearchWidget from './SearchWidget';
 
 interface StatisticsPanelProps {
-    data: VulnerabilityData[];
     region: VulnerabilityData | null;
     onClose: () => void;
     isClosing?: boolean;
@@ -15,7 +14,7 @@ interface StatisticsPanelProps {
 
 const formatNumber = (num: number) => new Intl.NumberFormat('es-ES').format(num);
 
-const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ data, region, onClose, isClosing, compareWithId }) => {
+const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ region, onClose, isClosing, compareWithId }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [isExpanded, setIsExpanded] = useState(false);
@@ -96,7 +95,7 @@ const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ data, region, onClose
     if (!region) return null;
 
     getSeverityColor(region.status);
-    const compareRegion = compareWithId ? data.find(r => r.id === compareWithId) : null;
+    const compareRegion = compareWithId ? mockVulnerabilityData.find(r => r.id === compareWithId) : null;
     const isComparing = !!compareRegion;
 
     const renderRegionData = (regionData: VulnerabilityData) => {

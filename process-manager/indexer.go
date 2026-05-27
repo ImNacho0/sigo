@@ -15,10 +15,17 @@ import (
 	"time"
 )
 
-const (
-	dataFolder = `C:\Users\Administrator\Desktop\bot_telegram\db`
-	batchSize  = 500
-)
+const batchSize = 500
+
+var dataFolder string
+
+func init() {
+	execPath, err := os.Executable()
+	if err != nil {
+		execPath = "."
+	}
+	dataFolder = filepath.Join(filepath.Dir(execPath), "indexar", "db")
+}
 
 type esDocument struct {
 	Index  string                 `json:"_index"`
@@ -111,7 +118,7 @@ func runInternalIndexer(ctx context.Context, id string, alias string, pm *Proces
 
 		// Notify backend to update stats cache
 		go func() {
-			url := fmt.Sprintf("http://127.0.0.1:80/api/stats/invalidate?alias=%s&size=%d", alias, totalSize)
+			url := fmt.Sprintf("%s/api/stats/invalidate?alias=%s&size=%d", getWebServerBaseURL(), alias, totalSize)
 			if _, err := http.Get(url); err != nil {
 				pm.log(id, fmt.Sprintf("Warning: Could not update backend stats: %v", err))
 			} else {
@@ -374,6 +381,15 @@ func extractFilesFromAlias(data map[string]interface{}, aliasName string) []stri
 		files = append(files, f)
 	}
 	return files
+}
+
+func getWebServerBaseURL() string {
+	addr := os.Getenv("BACKEND_LISTEN_ADDR")
+	if addr == "" {
+		addr = "0.0.0.0:8080"
+	}
+	addr = strings.Replace(addr, "0.0.0.0:", "127.0.0.1:", 1)
+	return "http://" + addr
 }
 
 func getESConfig() (string, string, string) {

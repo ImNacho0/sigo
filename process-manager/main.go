@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -52,8 +54,16 @@ var clients = make(map[*SafeClient]bool)
 var clientsMutex sync.RWMutex
 var broadcast = make(chan BroadcastMessage, 100)
 
+func execDir() string {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(execPath)
+}
+
 func main() {
-	configs, err := LoadConfig("configs/config.json")
+	configs, err := LoadConfig(filepath.Join(execDir(), "configs", "config.json"))
 	if err != nil {
 		log.Fatal("Error loading config:", err)
 	}
@@ -87,7 +97,7 @@ func main() {
 
 	go handleMessages()
 
-	http.Handle("/", http.FileServer(http.Dir("./web")))
+	http.Handle("/", http.FileServer(http.Dir(filepath.Join(execDir(), "web"))))
 	http.HandleFunc("/ws", handleConnections)
 	http.HandleFunc("/api/processes/start", handleStartProcess)
 	http.HandleFunc("/api/processes/stop", handleStopProcess)
