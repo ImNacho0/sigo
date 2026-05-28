@@ -82,6 +82,7 @@ xcopy /E /I /Y web release\web >nul
 
 REM Scripts
 copy scripts\toggle_tor.bat release\scripts\ >nul
+copy scripts\rebuild_frontend.bat release\scripts\ >nul
 
 REM Tor
 if exist tor\tor_bin\* xcopy /E /I /Y tor\tor_bin release\tor\tor_bin >nul

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	dataFolder = `C:\Users\Administrator\Desktop\bot_telegram\db`
+	dataFolder = `indexar\db`
 	batchSize  = 500
 )
 
@@ -30,11 +30,21 @@ func runInternalIndexer(ctx context.Context, id string, alias string, pm *Proces
 	pm.log(id, fmt.Sprintf("Starting internal indexer. Target alias: %s", alias))
 	pm.log(id, fmt.Sprintf("Scanning folder: %s", dataFolder))
 
-	files, err := getDataFiles(dataFolder)
+	if info, statErr := os.Stat(dataFolder); statErr != nil {
+		pm.log(id, fmt.Sprintf("❌ Cannot access folder %s: %v", dataFolder, statErr))
+		return statErr
+	} else if !info.IsDir() {
+		pm.log(id, fmt.Sprintf("❌ %s is not a directory.", dataFolder))
+		return fmt.Errorf("not a directory: %s", dataFolder)
+	}
+
+	files, totalScanned, err := getDataFiles(dataFolder)
 	if err != nil {
 		pm.log(id, fmt.Sprintf("Error reading directory: %v", err))
 		return err
 	}
+
+	pm.log(id, fmt.Sprintf("Scanned %d entries, matched %d files with supported extensions.", totalScanned, len(files)))
 
 	if len(files) == 0 {
 		pm.log(id, "No supported files (JSON, CSV, TXT, JSONL) found to index.")
@@ -111,7 +121,7 @@ func runInternalIndexer(ctx context.Context, id string, alias string, pm *Proces
 
 		// Notify backend to update stats cache
 		go func() {
-			url := fmt.Sprintf("http://127.0.0.1:80/api/stats/invalidate?alias=%s&size=%d", alias, totalSize)
+			url := fmt.Sprintf("http://127.0.0.1:8080/api/stats/invalidate?alias=%s&size=%d", alias, totalSize)
 			if _, err := http.Get(url); err != nil {
 				pm.log(id, fmt.Sprintf("Warning: Could not update backend stats: %v", err))
 			} else {
@@ -218,7 +228,7 @@ func RunDeindexing(ctx context.Context, id string, alias string, filename string
 	deleteQuery := map[string]interface{}{
 		"query": map[string]interface{}{
 			"term": map[string]interface{}{
-				"file": filename,
+				"file.keyword": filename,
 			},
 		},
 	}
@@ -310,7 +320,7 @@ func RunDeindexing(ctx context.Context, id string, alias string, filename string
 
 	// Notify backend to update stats cache
 	go func() {
-		url := fmt.Sprintf("http://127.0.0.1:80/api/stats/invalidate?alias=%s&size=%d", alias, totalSize)
+		url := fmt.Sprintf("http://127.0.0.1:8080/api/stats/invalidate?alias=%s&size=%d", alias, totalSize)
 		if _, err := http.Get(url); err != nil {
 			pm.log(id, fmt.Sprintf("Warning: Could not update backend stats: %v", err))
 		} else {
@@ -392,13 +402,15 @@ func getESConfig() (string, string, string) {
 	return esHost, esUser, esPass
 }
 
-func getDataFiles(dir string) ([]string, error) {
+func getDataFiles(dir string) ([]string, int, error) {
 	var files []string
+	var totalScanned int
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // skip errors
+			return nil // skip errors on individual entries
 		}
 		if !info.IsDir() {
+			totalScanned++
 			ext := strings.ToLower(filepath.Ext(info.Name()))
 			if ext == ".json" || ext == ".csv" || ext == ".txt" || ext == ".jsonl" {
 				files = append(files, path)
@@ -406,7 +418,7 @@ func getDataFiles(dir string) ([]string, error) {
 		}
 		return nil
 	})
-	return files, err
+	return files, totalScanned, err
 }
 
 func readFileData(path string) ([]map[string]interface{}, error) {
@@ -494,8 +506,7 @@ func readCSV(path string) ([]map[string]interface{}, error) {
 	reader.FieldsPerRecord = -1
 	reader.LazyQuotes = true
 
-	headers, err := reader.Read()
-	if err != nil {
+	if _, err := reader.Read(); err != nil {
 		return nil, fmt.Errorf("failed to read csv headers: %v", err)
 	}
 
@@ -509,15 +520,15 @@ func readCSV(path string) ([]map[string]interface{}, error) {
 			continue // skip bad rows
 		}
 
-		row := make(map[string]interface{})
-		for i, val := range record {
-			colName := fmt.Sprintf("col_%d", i)
-			if i < len(headers) && headers[i] != "" {
-				colName = headers[i]
+		values := make([]string, 0, len(record))
+		for _, val := range record {
+			if val != "" {
+				values = append(values, val)
 			}
-			row[colName] = val
 		}
-		result = append(result, row)
+		result = append(result, map[string]interface{}{
+			"content": strings.Join(values, " "),
+		})
 	}
 	return result, nil
 }

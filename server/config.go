@@ -19,7 +19,7 @@ var (
 	TorProxy             = "127.0.0.1:9050"
 	BackendURL           = "http://127.0.0.1:5000"
 	BearerToken          string
-	ListenAddr           = "0.0.0.0:80"
+	ListenAddr           = "0.0.0.0:8080"
 	TorListenAddr        = "127.0.0.1:8081"
 	GeminiAPIKey         string
 	GeminiURL            = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="

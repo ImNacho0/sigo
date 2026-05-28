@@ -90,6 +90,18 @@ func handleGateway(w http.ResponseWriter, r *http.Request) {
 	case "searchchi":
 		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
 		handleSearchChi(w, r)
+	case "searchbol":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchBol(w, r)
+	case "searchecu":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchEcu(w, r)
+	case "searchven":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchVen(w, r)
+	case "searchpar":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchPar(w, r)
 	case "padronesp":
 		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
 		handlePadronEsp(w, r)
@@ -272,6 +284,22 @@ func handleSearchPer(w http.ResponseWriter, r *http.Request) {
 
 func handleSearchChi(w http.ResponseWriter, r *http.Request) {
 	proxyRequest(w, r, BackendURL+"/searchchi")
+}
+
+func handleSearchBol(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchbol")
+}
+
+func handleSearchEcu(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchecu")
+}
+
+func handleSearchVen(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchven")
+}
+
+func handleSearchPar(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchpar")
 }
 
 func handlePadronEsp(w http.ResponseWriter, r *http.Request) {
