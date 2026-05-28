@@ -231,6 +231,118 @@ def search_chi():
     hits = res["hits"]["hits"]
     return jsonify({"query": query, "results": hits})
 
+# ================= SEARCH BOL =================
+@app.route("/searchbol", methods=["POST"])
+def search_bol():
+    if not check_auth():
+        return jsonify({"error": "No autorizado"}), 401
+
+    query = request.json.get("query", "").strip()
+    request._query_value = query
+
+    if not query:
+        return jsonify({"error": "Query vacío"}), 400
+
+    try:
+        res = es.search(
+            index="bolivia",
+            body={
+                "query": {
+                    "match": {"content": {"query": query, "operator": "and"}}
+                },
+                "size": 50
+            }
+        )
+    except Exception as e:
+        return jsonify({"detail": f"Elasticsearch Error (BOL): {str(e)}"}), 500
+
+    hits = res["hits"]["hits"]
+    return jsonify({"query": query, "results": hits})
+
+# ================= SEARCH ECU =================
+@app.route("/searchecu", methods=["POST"])
+def search_ecu():
+    if not check_auth():
+        return jsonify({"error": "No autorizado"}), 401
+
+    query = request.json.get("query", "").strip()
+    request._query_value = query
+
+    if not query:
+        return jsonify({"error": "Query vacío"}), 400
+
+    try:
+        res = es.search(
+            index="ecuador",
+            body={
+                "query": {
+                    "match": {"content": {"query": query, "operator": "and"}}
+                },
+                "size": 50
+            }
+        )
+    except Exception as e:
+        return jsonify({"detail": f"Elasticsearch Error (ECU): {str(e)}"}), 500
+
+    hits = res["hits"]["hits"]
+    return jsonify({"query": query, "results": hits})
+
+# ================= SEARCH VEN =================
+@app.route("/searchven", methods=["POST"])
+def search_ven():
+    if not check_auth():
+        return jsonify({"error": "No autorizado"}), 401
+
+    query = request.json.get("query", "").strip()
+    request._query_value = query
+
+    if not query:
+        return jsonify({"error": "Query vacío"}), 400
+
+    try:
+        res = es.search(
+            index="venezuela",
+            body={
+                "query": {
+                    "match": {"content": {"query": query, "operator": "and"}}
+                },
+                "size": 50
+            }
+        )
+    except Exception as e:
+        return jsonify({"detail": f"Elasticsearch Error (VEN): {str(e)}"}), 500
+
+    hits = res["hits"]["hits"]
+    return jsonify({"query": query, "results": hits})
+
+# ================= SEARCH PAR =================
+@app.route("/searchpar", methods=["POST"])
+def search_par():
+    if not check_auth():
+        return jsonify({"error": "No autorizado"}), 401
+
+    query = request.json.get("query", "").strip()
+    request._query_value = query
+
+    if not query:
+        return jsonify({"error": "Query vacío"}), 400
+
+    try:
+        res = es.search(
+            index="paraguay",
+            body={
+                "query": {
+                    "match": {"content": {"query": query, "operator": "and"}}
+                },
+                "size": 50
+            }
+        )
+    except Exception as e:
+        return jsonify({"detail": f"Elasticsearch Error (PAR): {str(e)}"}), 500
+
+    hits = res["hits"]["hits"]
+    return jsonify({"query": query, "results": hits})
+
 # ================= AUTH =================
 def check_auth():
     auth = request.headers.get("Authorization")

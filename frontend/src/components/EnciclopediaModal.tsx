@@ -341,8 +341,8 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                             <Users size={18} />
                                             <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Población Afectada</span>
                                         </div>
-                                        <div style={{ fontSize: '28px', fontWeight: 800, color: '#fff', marginBottom: '4px' }}>{selectedCountry.filteredPopulation.toLocaleString()}</div>
-                                        <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedCountry.filteredDataPercentage}% de la población expuesta.</div>
+                                        <div style={{ fontSize: '28px', fontWeight: 800, color: '#fff', marginBottom: '4px' }}>{selectedCountry.docs.toLocaleString()}</div>
+                                        <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedCountry.totalPopulation > 0 ? Math.min(100, Math.round((selectedCountry.docs / selectedCountry.totalPopulation) * 100)) : 0}% de la población expuesta.</div>
                                     </div>
                                     <div style={{ background: 'rgba(255,255,255,0.02)', padding: '24px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--vuln-medium)', marginBottom: '16px' }}>
