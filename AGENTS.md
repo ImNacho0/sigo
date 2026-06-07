@@ -172,11 +172,12 @@ Dos repositorios:
 
 ## ADD NEW COUNTRY
 
-1. `api/app.py`: Nueva ruta `/searchXXX` → índice ES.
-2. `server/handlers_proxy.go`: Nuevo case en `handleGateway`.
-3. `server/server.go`: Registrar ruta en mux.
-4. `frontend/src/data/`: Añadir datos región al mapa.
-5. `process-manager/indexer.go`: Indexar datos en ES.
+1. `api/app.py`: Nueva ruta `/searchXXX` → índice ES (usar nombre alias como index, ej: `"mexico"`).
+2. `server/handlers_proxy.go`: Nuevo case `"searchXXX"` en `handleGateway` + función `handleSearchXXX`.
+3. `server/server.go`: Registrar ruta legacy `/api/searchXXX` en mux.
+4. `frontend/src/data/mockData.ts`: Añadir entrada `VulnerabilityData` con id, coordenadas, stats.
+   `frontend/src/components/SearchWidget.tsx`: Añadir `'id': 'searchXXX'` al mapa de targets.
+5. `web/app.js`: Añadir `<option value="alias">País</option>` en el selector `#alias-selector` del panel de indexación (el indexer usa este alias como nombre del ES alias sobre `spaindb`).
 
 ## COMMANDS
 

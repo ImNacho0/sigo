@@ -205,6 +205,7 @@ function createProcessCard(proc) {
                             <option value="ecuador">Ecuador</option>
                             <option value="venezuela">Venezuela</option>
                             <option value="paraguay">Paraguay</option>
+                            <option value="mexico">México</option>
                         </select>
                     </div>
                     <button id="btn-index-db" onclick="startIndexer()" class="btn-primary" style="padding: 6px 12px; font-size: 12px;">
