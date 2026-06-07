@@ -5,6 +5,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,11 +44,12 @@ var DiscordBridgeToken string
 var torClient *http.Client
 
 // aiClient is a direct HTTP client with no proxy — used for external AI API calls.
-// http.DefaultClient may inherit system/env proxies (e.g. Tor) which AI providers block.
+// Proxy: nil in http.Transport still uses ProxyFromEnvironment (e.g. Tor via HTTP_PROXY).
+// We must pass an explicit no-op function to truly bypass all proxies.
 var aiClient = &http.Client{
 	Timeout: 30 * time.Second,
 	Transport: &http.Transport{
-		Proxy: nil,
+		Proxy: func(*http.Request) (*url.URL, error) { return nil, nil },
 	},
 }
 
