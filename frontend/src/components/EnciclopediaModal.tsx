@@ -94,14 +94,26 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                     .hacker-card { flex-direction: column !important; }
                     .hacker-photo-container { width: 100% !important; height: 250px !important; }
                     .mobile-hide { display: none !important; }
-                    .enc-close-btn { 
-                        position: fixed !important; 
-                        top: 15px !important; 
-                        right: 15px !important; 
+                    .enc-close-btn {
+                        position: fixed !important;
+                        top: 15px !important;
+                        right: 15px !important;
                         z-index: 10000 !important;
                         background: rgba(255, 42, 95, 0.2) !important;
                         border: 1px solid rgba(255, 42, 95, 0.4) !important;
                     }
+                }
+                @keyframes livePulse {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.5); }
+                    60% { box-shadow: 0 0 0 5px rgba(0, 230, 118, 0); }
+                }
+                .indexed-dot {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 50%;
+                    background: rgba(0, 230, 118, 0.75);
+                    animation: livePulse 2.6s ease-out infinite;
+                    flex-shrink: 0;
                 }
             `}</style>
             <div
@@ -158,7 +170,7 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
 
                         <div className="custom-scrollbar" style={{ flex: 1, overflowY: isMobile ? 'hidden' : 'auto', padding: isMobile ? '0 10px' : '16px' }}>
                             <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: '8px' }}>
-                                {mockVulnerabilityData.map((country) => (
+                                {[...mockVulnerabilityData].sort((a, b) => a.country.localeCompare(b.country, 'es')).map((country) => (
                                     <button
                                         key={country.id}
                                         onClick={() => setSelectedId(country.id)}
@@ -339,7 +351,7 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                     <div style={{ background: 'rgba(255,255,255,0.02)', padding: '24px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--vuln-critical)', marginBottom: '16px' }}>
                                             <Users size={18} />
-                                            <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Población Afectada</span>
+                                            <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Registros Vulnerados</span>
                                         </div>
                                         <div style={{ fontSize: '28px', fontWeight: 800, color: '#fff', marginBottom: '4px' }}>{selectedCountry.docs.toLocaleString()}</div>
                                         <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedCountry.totalPopulation > 0 ? Math.min(100, Math.round((selectedCountry.docs / selectedCountry.totalPopulation) * 100)) : 0}% de la población expuesta.</div>
@@ -379,7 +391,7 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                 </div>
 
                                 {/* Two Column Layout for Details */}
-                                <div className="enc-two-col" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '48px', marginBottom: '48px' }}>
+                                <div className="enc-two-col" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '48px', marginBottom: '48px', alignItems: 'start' }}>
                                     <div>
                                         <h3 style={{ color: '#fff', fontSize: '18px', fontWeight: 700, marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             <Info size={20} color="var(--accent-blue)" /> Detalles
@@ -413,9 +425,9 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                             </h4>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                                 {(() => {
-                                                    const breachData: Record<string, { date: string, event: string, status: string }[]> = {
+                                                    const breachData: Record<string, { date: string, event: string, status: string, indexed?: boolean }[]> = {
                                                         'es': [
-                                                            { date: '2023', event: 'Endesa (Ransomware / Intrusión)', status: 'CRÍTICO' },
+                                                            { date: '2023', event: 'Endesa (Ransomware / Intrusión)', status: 'CRÍTICO', indexed: true },
                                                             { date: '2024', event: 'Banco Santander (Filtración interna)', status: 'ALTO' },
                                                             { date: '2023', event: 'Hospital Clínic (Ransomware)', status: 'CRÍTICO' }
                                                         ],
@@ -448,6 +460,11 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                                             { date: '2023', event: 'Novaestrat (Registros Gubernamentales)', status: 'ALTO' },
                                                             { date: '2022', event: 'IPS (Instituto de Previsión Social)', status: 'MEDIO' },
                                                             { date: '2023', event: 'Ministerio de Hacienda', status: 'MEDIO' }
+                                                        ],
+                                                        'mx': [
+                                                            { date: '2022', event: 'SEDENA (6TB correos militares filtrados)', status: 'CRÍTICO' },
+                                                            { date: '2023', event: 'PEMEX (Ransomware / Exfiltración)', status: 'CRÍTICO' },
+                                                            { date: '2024', event: 'Profeco (Base de datos ciudadanos)', status: 'ALTO' }
                                                         ]
                                                     };
                                                     const cases = breachData[selectedCountry.id] || breachData['es'];
@@ -465,12 +482,17 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                                                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{item.date}</div>
                                                                 <div style={{ fontSize: '13px', color: '#fff', fontWeight: 500 }}>{item.event}</div>
                                                             </div>
-                                                            <div style={{
-                                                                fontSize: '10px',
-                                                                fontWeight: 800,
-                                                                color: item.status === 'CRÍTICO' ? 'var(--vuln-critical)' : item.status === 'ALTO' ? 'var(--vuln-high)' : 'var(--vuln-medium)'
-                                                            }}>
-                                                                {item.status}
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                {item.indexed && (
+                                                                    <div className="indexed-dot" title="Indexada en base" />
+                                                                )}
+                                                                <div style={{
+                                                                    fontSize: '10px',
+                                                                    fontWeight: 800,
+                                                                    color: item.status === 'CRÍTICO' ? 'var(--vuln-critical)' : item.status === 'ALTO' ? 'var(--vuln-high)' : 'var(--vuln-medium)'
+                                                                }}>
+                                                                    {item.status}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ));
@@ -487,7 +509,7 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                             {/* Leaders Section */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', flex: 1 }}>
-                                                    <img src={selectedCountry.presidentPhoto} alt={selectedCountry.president} style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)' }} />
+                                                    <img src={selectedCountry.presidentPhoto} alt={selectedCountry.president} style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover', objectPosition: selectedCountry.presidentPhotoPosition || 'center', border: '1px solid rgba(255,255,255,0.1)' }} />
                                                     <div>
                                                         <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.5px', marginBottom: '2px' }}>Líder Ejecutivo</div>
                                                         <div style={{ color: '#fff', fontWeight: 700, fontSize: '15px' }}>{selectedCountry.president}</div>
@@ -621,6 +643,12 @@ export const EnciclopediaModal: React.FC<EnciclopediaModalProps> = ({ onClose })
                                                 type: 'Ciberespionaje',
                                                 info: 'Grupo de ciberespionaje activo en Latinoamérica, identificado por campañas dirigidas contra gobiernos y fuerzas militares, incluyendo objetivos en Ecuador.',
                                                 cases: ['Fuerzas armadas', 'Ministerios gubernamentales', 'Correos institucionales']
+                                            },
+                                            'mx': {
+                                                name: 'LulzSec México',
+                                                type: 'Hacktivismo / Intrusión Estatal',
+                                                info: 'Célula mexicana vinculada al movimiento LulzSec, activa entre 2012 y 2014. Responsable de intrusiones contra la Presidencia de la República, PEMEX y la Secretaría de Gobernación. Filtraron credenciales de acceso y documentos internos de sistemas gubernamentales, exponiendo la débil seguridad de la infraestructura digital del Estado mexicano.',
+                                                cases: ['Presidencia de la República', 'PEMEX (Credenciales)', 'Secretaría de Gobernación']
                                             }
                                         };
 

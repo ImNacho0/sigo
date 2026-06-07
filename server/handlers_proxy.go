@@ -535,13 +535,17 @@ func handlePadronGeneric(w http.ResponseWriter, r *http.Request, cachePrefix, ap
 
 func handleSimplify(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Método no permitido"})
 		return
 	}
 
 	var input interface{}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "JSON inválido: " + err.Error()})
 		return
 	}
 
@@ -593,7 +597,9 @@ func handleSimplify(w http.ResponseWriter, r *http.Request) {
 
 	text, err := callGemini(prompt)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "❌ " + err.Error()})
 		return
 	}
 
@@ -624,23 +630,65 @@ func callGemini(prompt string) (string, error) {
 	reqBytes, _ := json.Marshal(geminiReqBody)
 	resp, err := http.Post(GeminiURL+GeminiAPIKey, "application/json", bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return "", fmt.Errorf("Error calling Gemini API")
+		return "", fmt.Errorf("Error calling Gemini API: %v", err)
 	}
 	defer resp.Body.Close()
 
+	// Read raw body first so we can log it on failure
+	rawBody, _ := io.ReadAll(resp.Body)
+
 	var geminiResp map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
-		return "", fmt.Errorf("Error parsing AI response")
+	if err := json.Unmarshal(rawBody, &geminiResp); err != nil {
+		log.Printf("[GEMINI] Raw body (parse error): %s", string(rawBody))
+		return "", fmt.Errorf("Error parsing AI response: %v", err)
+	}
+
+	// Check for API-level error first
+	if apiErr, ok := geminiResp["error"].(map[string]interface{}); ok {
+		if msg, ok := apiErr["message"].(string); ok {
+			log.Printf("[GEMINI] API error: %s", string(rawBody))
+			return "", fmt.Errorf("Gemini API error: %s", msg)
+		}
 	}
 
 	candidates, ok := geminiResp["candidates"].([]interface{})
 	if !ok || len(candidates) == 0 {
-		return "", fmt.Errorf("No candidates from AI")
+		// Check promptFeedback for block reason
+		if feedback, ok := geminiResp["promptFeedback"].(map[string]interface{}); ok {
+			if reason, ok := feedback["blockReason"].(string); ok {
+				log.Printf("[GEMINI] Blocked: reason=%s body=%s", reason, string(rawBody))
+				return "", fmt.Errorf("AI blocked the request: %s", reason)
+			}
+		}
+		log.Printf("[GEMINI] No candidates. Full body: %s", string(rawBody))
+		return "", fmt.Errorf("AI returned no candidates (check safety settings or API key)")
 	}
-	contentPart := candidates[0].(map[string]interface{})["content"].(map[string]interface{})
-	parts := contentPart["parts"].([]interface{})
-	respPart := parts[0].(map[string]interface{})
-	text := respPart["text"].(string)
+
+	contentRaw, ok := candidates[0].(map[string]interface{})["content"]
+	if !ok {
+		log.Printf("[GEMINI] No 'content' in candidate. Full body: %s", string(rawBody))
+		return "", fmt.Errorf("AI response missing content field")
+	}
+	contentPart, ok := contentRaw.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("AI response content has unexpected format")
+	}
+	partsRaw, ok := contentPart["parts"]
+	if !ok {
+		return "", fmt.Errorf("AI response missing parts field")
+	}
+	parts, ok := partsRaw.([]interface{})
+	if !ok || len(parts) == 0 {
+		return "", fmt.Errorf("AI response parts is empty")
+	}
+	respPart, ok := parts[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("AI response part has unexpected format")
+	}
+	text, ok := respPart["text"].(string)
+	if !ok {
+		return "", fmt.Errorf("AI response missing text field in part")
+	}
 
 	// Clean the response
 	return cleanAIResponse(text), nil

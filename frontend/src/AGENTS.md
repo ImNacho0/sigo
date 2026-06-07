@@ -1,18 +1,18 @@
 # AGENTS.md — frontend/src (React + Vite + TypeScript)
 
-**18 source files, 7454 lines, 14 components, 3 subdirectories**
+**23 source files, 18 components, 3 subdirectories**
 
 ## OVERVIEW
 
-Frontend SPA: mapa interactivo de vulnerabilidad por país, búsqueda multi-país, chat IA, panel de administración. Todo el estado vive en `App.tsx` (no Redux/Zustand). Comunicación con `server/` via `fetch()`.
+Frontend SPA: mapa interactivo de vulnerabilidad por país, búsqueda multi-país, chat IA, panel de administración, generador de documentos. Todo el estado vive en `App.tsx` (no Redux/Zustand). Comunicación con `server/` via `fetch()`.
 
 ## STRUCTURE
 
 ```
 src/
-├── components/       # 14 componentes (modales, paneles, mapa)
-├── data/             # Datos mock + coordenadas país (chileData.ts, mockData.ts)
-├── assets/           # Branding, banderas, imágenes por país
+├── components/       # 18 componentes (modales, paneles, mapa, fichas)
+├── data/             # Datos mock + coordenadas país + CP + datos aleatorios
+├── assets/           # Branding, banderas, imágenes por país (ES, MX, ...)
 ├── App.tsx           # Root component → todo el estado + routing booleano
 ├── main.tsx          # Entry point (ReactDOM.createRoot)
 └── index.css         # Variables CSS globales + animaciones
@@ -30,6 +30,14 @@ src/
 | Mapa | `VulnerabilityMap.tsx` | SVG map, hover, click, highlight |
 | Stats | `StatisticsPanel.tsx` | Panel lateral con métricas |
 | Login/Auth | `Login.tsx` | Password gate, operator_key |
+| Búsqueda por CP | `CpLookupPanel.tsx` | Lookup código postal → filas del index |
+| Generador DNI/MRZ | `DNIGenerator.tsx` | DNI español con MRZ ICAO TD1 |
+| Ficha TA.1 censado | `FichaCensado.tsx` | Formulario Seg. Social TA.1 imprimible |
+| Modelo 030 | `Modelo030.tsx` | Declaración censal Agencia Tributaria |
+| Selector de ficha | `FichaSelector.tsx` | Elige entre TA.1 y Modelo 030 |
+| Datos CP | `data/cpData.ts` + `data/cp/` | Map CP→provincia, localidad, filas |
+| Datos aleatorios | `data/randomData.ts` | Generadores de NIF, tel, dirección, etc. |
+| Datos México | `data/mexicoData.ts` | Datos geográficos MX |
 
 ## COMPONENT MAP
 
@@ -48,6 +56,11 @@ src/
 | `MossadModal` | Modal | Agency branding/info | — |
 | `LogoutModal` | Modal | Confirm logout | `isClosing` |
 | `CyberArc` | Visual | Decorative UI element | — |
+| `CpLookupPanel` | Panel | Lookup CP → localidades/filas del index | `cp`, `prov`, `pob`, `rows` |
+| `DNIGenerator` | Tool | Genera DNI+MRZ ICAO TD1 imprimible | — (self-contained) |
+| `FichaCensado` | Tool | Formulario TA.1 Seg. Social imprimible | — (self-contained) |
+| `Modelo030` | Tool | Formulario Modelo 030 AEAT imprimible | — (self-contained) |
+| `FichaSelector` | Modal | Elige entre TA.1 y Modelo 030 | `onPick`, `onClose` |
 
 ## STATE MANAGEMENT
 
@@ -83,6 +96,9 @@ Props: `isClosing` (boolean) + `onClose` (callback). The modal renders a CSS cla
 - **Assets**: Imported directly (`import logo from './assets/x.png'`). Vite handles bundling.
 - **Animations**: CSS transitions + `isClosing` timers in App.tsx. No animation libraries.
 - **Map data**: Country polygons in `data/chileData.ts`, vulnerability metadata in `data/mockData.ts`.
+- **CP data**: `data/cpData.ts` exports `cpMap` (CP → {prov, pob}); raw CSVs en `data/cp/`. Assets en `public/cp_data/` y `public/cp_locations.json`.
+- **Random data**: `data/randomData.ts` — generadores de NIF, teléfono, dirección, email, identidad, municipios.
+- **México data**: `data/mexicoData.ts` — datos geográficos MX para estadísticas.
 
 ## ANTI-PATTERNS
 

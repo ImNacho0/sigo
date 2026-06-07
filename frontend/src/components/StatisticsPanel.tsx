@@ -3,6 +3,7 @@ import { getSeverityColor, mockVulnerabilityData } from '../data/mockData';
 import type { VulnerabilityData } from '../data/mockData';
 import { Users, HardDrive, AlertTriangle, Search, X, Clock, Fingerprint, FileSearch, Shield, Database, Activity } from 'lucide-react';
 import { chileProvinces } from '../data/chileData';
+import { mexicoStates } from '../data/mexicoData';
 import SearchWidget from './SearchWidget';
 
 interface StatisticsPanelProps {
@@ -89,6 +90,13 @@ const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ region, onClose, isCl
         if (!region || region.id !== 'cl') return [];
         return chileProvinces
             .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+            .sort((a, b) => b.lines - a.lines);
+    }, [region, searchTerm]);
+
+    const filteredStates = useMemo(() => {
+        if (!region || region.id !== 'mx') return [];
+        return mexicoStates
+            .filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
             .sort((a, b) => b.lines - a.lines);
     }, [region, searchTerm]);
 
@@ -460,6 +468,32 @@ const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ region, onClose, isCl
                                 <div key={prov.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
                                     <span style={{ color: '#fff', fontWeight: 500 }}>{prov.name}</span>
                                     <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{formatNumber(prov.lines)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {regionData.id === 'mx' && !isComparing && (
+                    <div style={{ marginBottom: '24px' }}>
+                        <h3 style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                            <FileSearch size={16} /> Desglose Estatal
+                        </h3>
+                        <div style={{ position: 'relative', marginBottom: '12px' }}>
+                            <Search size={14} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
+                            <input
+                                type="text"
+                                placeholder="Buscar estado..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                style={{ width: '100%', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '8px 12px 8px 36px', color: '#fff', fontSize: '13px', outline: 'none', fontFamily: 'inherit' }}
+                            />
+                        </div>
+                        <div className="custom-scrollbar" style={{ maxHeight: '200px', overflowY: 'auto', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                            {filteredStates.map(state => (
+                                <div key={state.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
+                                    <span style={{ color: '#fff', fontWeight: 500 }}>{state.name}</span>
+                                    <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>{formatNumber(state.lines)}</span>
                                 </div>
                             ))}
                         </div>

@@ -123,6 +123,10 @@ function authMiddleware(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
   plugins: [react(), authMiddleware()],
   server: {
     proxy: {

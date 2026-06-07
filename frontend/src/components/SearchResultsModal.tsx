@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Search, Database, ShieldAlert, Sparkles, Loader2, Terminal, Users, Calendar, Activity, ChevronLeft, ChevronRight, RotateCcw, User, Shield } from 'lucide-react';
+import { cpMap } from '../data/cpData';
 
 const copyToClipboard = (text: string): boolean => {
     try {
@@ -34,6 +35,8 @@ interface SearchResultsModalProps {
     country: string;
     onClose: () => void;
     isClosing?: boolean;
+    onReady?: () => void;
+    isHidden?: boolean;
 }
 
 // Kept for the legacy helpers below (no longer dispatched from this
@@ -255,6 +258,38 @@ const _extractData = (data: any): ExtractionResult[] => {
 };
 void _generateVariants; void _extractData; // legacy refs, see advanced_helpers.go
 
+const tryParseJsonString = (value: string): any | null => {
+    const trimmed = value.trim().replace(/,\s*$/, '');
+    // Direct JSON object
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try { return JSON.parse(trimmed); } catch (_) {}
+    }
+    // JSON array — unwrap single-element arrays silently
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+            const arr = JSON.parse(trimmed);
+            if (Array.isArray(arr) && arr.length === 1 && typeof arr[0] === 'object' && arr[0] !== null) return arr[0];
+        } catch (_) {}
+    }
+    // NDJSON — each line is a JSON object; return first parseable line
+    if (trimmed.includes('\n')) {
+        for (const line of trimmed.split('\n')) {
+            const l = line.trim();
+            if (l.startsWith('{') && l.endsWith('}')) {
+                try { return JSON.parse(l); } catch (_) {}
+            }
+        }
+    }
+    // Double-encoded string (JSON string of a JSON string)
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || trimmed.includes('\\"')) {
+        try {
+            const inner = JSON.parse(trimmed);
+            if (typeof inner === 'string') return tryParseJsonString(inner);
+        } catch (_) {}
+    }
+    return null;
+};
+
 const flattenObject = (obj: any, prefix = ''): any => {
     if (!obj || typeof obj !== 'object') return { [prefix]: obj };
     return Object.keys(obj).reduce((acc: any, k: any) => {
@@ -262,14 +297,44 @@ const flattenObject = (obj: any, prefix = ''): any => {
         const value = obj[k];
         if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
             Object.assign(acc, flattenObject(value, pre + k));
-        } else if (typeof value === 'string' && value.trim().startsWith('{') && value.trim().endsWith('}')) {
-            try {
-                const parsed = JSON.parse(value);
+        } else if (typeof value === 'string') {
+            const parsed = tryParseJsonString(value);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
                 Object.assign(acc, flattenObject(parsed, pre + k));
-            } catch (e) { acc[pre + k] = value; }
+            } else {
+                acc[pre + k] = value;
+            }
         } else { acc[pre + k] = value; }
         return acc;
     }, {});
+};
+
+const extractCp = (direccion: string): string | null => {
+    const matches = direccion.match(/\b\d{5}\b/g);
+    return matches ? matches[matches.length - 1] : null;
+};
+
+const flattenAndFilter = (obj: any): any => {
+    const flat = flattenObject(obj);
+    // Remove raw LOCALIDAD field (unreliable in incive data)
+    Object.keys(flat).forEach(k => {
+        if (k.toLowerCase().includes('localidad')) delete flat[k];
+    });
+    // Derive LOCALIDAD from CP in direccion
+    const dirKey = Object.keys(flat).find(k => k.toLowerCase().includes('direccion'));
+    if (!dirKey || typeof flat[dirKey] !== 'string') return flat;
+    const cp = extractCp(flat[dirKey]);
+    if (!cp || !cpMap[cp]) return flat;
+    // Insert LOCALIDAD before nuc (or before _source_file as fallback)
+    const keys = Object.keys(flat);
+    const anchorKey = keys.find(k => k.toLowerCase().includes('nuc')) ?? keys.find(k => k.startsWith('_source_file'));
+    if (!anchorKey) { flat['_source_content_LOCALIDAD'] = cpMap[cp]; return flat; }
+    const result: any = {};
+    for (const k of keys) {
+        if (k === anchorKey) result['_source_content_LOCALIDAD'] = cpMap[cp];
+        result[k] = flat[k];
+    }
+    return result;
 };
 
 const isBadSpainCensoFile = (fileName: string): boolean => {
@@ -298,7 +363,7 @@ const shouldFilterSpainHit = (hit: any): boolean => {
     return false;
 };
 
-const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query, country, onClose, isClosing }) => {
+const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query, country, onClose, isClosing, onReady, isHidden }) => {
     // When advanced-search is the trigger, the parent (SearchWidget) opens the
     // modal without firing the regular /gateway hit, so there are no initial
     // hits — the backend will stream the "original" tab via SSE.
@@ -322,6 +387,8 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
     const activeTabId = activePerson.activeTabId;
     const assistantLogs = activePerson.assistantLogs;
     const isProcessing = activePerson.isProcessing;
+
+    const onReadyCalledRef = useRef(false);
 
     const currentKey = `${activePerson.id}_${activeTabId}`;
     const currentSimplifiedHtml = simplifiedResults[currentKey];
@@ -405,7 +472,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
     };
 
     const getResultKey = (h: any) => {
-        const flat = flattenObject(h);
+        const flat = flattenAndFilter(h);
         const cleaned: any = {};
         const techKeys = ['_id', '_score', '_index', 'id', 'score', 'index', '_type'];
         Object.keys(flat).forEach(k => {
@@ -452,7 +519,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
             initialHitsRaw = initialHitsRaw.filter((h: any) => !shouldFilterSpainHit(h));
         }
 
-        const originalResults = initialHitsRaw.map((h: any) => flattenObject(h));
+        const originalResults = initialHitsRaw.map((h: any) => flattenAndFilter(h));
         setPeople([{
             id: 'initial', name: query.toUpperCase(), query: query,
             tabs: [{ id: 'original', label: 'Original', type: 'original', results: originalResults }],
@@ -501,10 +568,10 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
     const addPerson = async (name: string, searchQuery: string) => {
         const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
         const id = normalizedName.replace(/\s+/g, '_');
-        let newIdx = -1;
+        if (peopleRef.current.some((p, i) => i > 0 && p && p.name === normalizedName)) return;
+        const newIdx = peopleRef.current.length;
         setPeople(prev => {
             if (prev.find(p => p && p.name === normalizedName)) return prev;
-            newIdx = prev.length;
             return [...prev, {
                 id, name: normalizedName, query: searchQuery,
                 tabs: [{ id: 'original', label: 'Original', type: 'original', results: [] }],
@@ -515,7 +582,6 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                 showNoResultsBadge: false, initialProcessDone: true,
             }];
         });
-        if (newIdx < 0) return;
         try {
             const res = await fetch('/gateway', {
                 method: 'POST',
@@ -531,7 +597,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                 if (country === 'España') {
                     hits = hits.filter((h: any) => !shouldFilterSpainHit(h));
                 }
-                const flat = hits.map((h: any) => flattenObject(h));
+                const flat = hits.map((h: any) => flattenAndFilter(h));
                 setPeople(prev => {
                     const next = [...prev];
                     if (next[newIdx]) {
@@ -579,7 +645,13 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                     return next;
                 });
                 break;
-            case 'tab':
+            case 'tab': {
+                const genericEmails = /\ba@a\b/i;
+                if (genericEmails.test(data.label || '') || genericEmails.test(data.tabId || '')) break;
+                if (!onReadyCalledRef.current && onReady) {
+                    onReadyCalledRef.current = true;
+                    onReady();
+                }
                 setPeople(prev => {
                     const next = [...prev];
                     const p = next[data.personIdx];
@@ -589,14 +661,15 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                         // Replace if empty (e.g. seed "original" tab), otherwise keep.
                         if (p.tabs[existingIdx].results.length === 0) {
                             p.tabs = [...p.tabs];
-                            p.tabs[existingIdx] = { id: data.tabId, label: data.label, type: data.type, results: data.results || [] };
+                            p.tabs[existingIdx] = { id: data.tabId, label: data.label, type: data.type, results: (data.results || []).map((r: any) => flattenAndFilter(r)) };
                         }
                         return next;
                     }
-                    p.tabs = [...p.tabs, { id: data.tabId, label: data.label, type: data.type, results: data.results || [] }];
+                    p.tabs = [...p.tabs, { id: data.tabId, label: data.label, type: data.type, results: (data.results || []).map((r: any) => flattenAndFilter(r)) }];
                     return next;
                 });
                 break;
+            }
             case 'log':
                 addLog(data.message, data.type || 'info', data.payload, data.personIdx ?? 0);
                 break;
@@ -628,6 +701,44 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
         });
 
         try {
+            // Log tilde variants for names so they're visible in assistant logs
+            const isName = /^[a-záéíóúüñA-ZÁÉÍÓÚÜÑ\s'-]+$/.test(query.trim());
+            if (isName) {
+                const commonAccents: Record<string, string> = {
+                    'sanchez':'Sánchez','perez':'Pérez','rodriguez':'Rodríguez','martinez':'Martínez',
+                    'lopez':'López','gonzalez':'González','hernandez':'Hernández','jimenez':'Jiménez',
+                    'alvarez':'Álvarez','fernandez':'Fernández','gomez':'Gómez','diaz':'Díaz',
+                    'vazquez':'Vázquez','munoz':'Muñoz','nunez':'Núñez','marin':'Marín',
+                    'beltran':'Beltrán','millan':'Millán','galan':'Galán','roman':'Román',
+                    'roldan':'Roldán','solis':'Solís','jose':'José','maria':'María','jesus':'Jesús',
+                    'angel':'Ángel','adrian':'Adrián','agustin':'Agustín','andres':'Andrés',
+                    'cesar':'César','cristobal':'Cristóbal','damian':'Damián','efrain':'Efraín',
+                    'eloisa':'Eloísa','estefania':'Estefanía','fabian':'Fabián','german':'Germán',
+                    'hernan':'Hernán','ines':'Inés','ivan':'Iván','joaquin':'Joaquín',
+                    'julian':'Julián','martin':'Martín','nestor':'Néstor','oscar':'Óscar',
+                    'ramon':'Ramón','raul':'Raúl','ruben':'Rubén','sebastian':'Sebastián',
+                    'tomas':'Tomás','victor':'Víctor',
+                };
+                const tildeVariants = new Set<string>();
+                const words = query.trim().split(/\s+/);
+                // accented form
+                const accentedWords = words.map(w => {
+                    const k = normalizeText(w).toLowerCase();
+                    const r = commonAccents[k];
+                    if (!r) return w;
+                    return w === w.toUpperCase() ? r.toUpperCase() : r;
+                });
+                const accented = accentedWords.join(' ');
+                if (accented !== query.trim()) tildeVariants.add(accented);
+                // de-accented form
+                const deaccented = normalizeText(query.trim());
+                if (deaccented !== query.trim()) tildeVariants.add(deaccented);
+
+                if (tildeVariants.size > 0) {
+                    addLog(`🔤 Variantes con tildes: ${[...tildeVariants].join(' | ')}`, 'info', undefined, 0);
+                }
+            }
+
             const res = await fetch('/gateway', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
@@ -675,12 +786,21 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
 
     const handleSimplify = async () => {
         setSimplifyingStatus(prev => ({ ...prev, [currentKey]: true }));
+        setSimplifyError(null);
         try {
             const activeTab = tabs.find(t => t.id === activeTabId);
-            const res = await fetch('/gateway', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'simplify', data: activeTab?.results || results }) });
-            const data = await res.json();
-            if (res.ok) setSimplifiedResults(prev => ({ ...prev, [currentKey]: data.text }));
-            else setSimplifyError(data.error);
+            const tabResults = activeTab?.results;
+            // Use tab results only if they actually have data, otherwise fall back to raw results
+            const dataToSend = (Array.isArray(tabResults) && tabResults.length > 0) ? tabResults : results;
+            const res = await fetch('/gateway', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'simplify', data: dataToSend }) });
+            const raw = await res.text();
+            let data: any;
+            try { data = JSON.parse(raw); } catch { data = { text: raw }; }
+            if (res.ok && data.text) {
+                setSimplifiedResults(prev => ({ ...prev, [currentKey]: data.text }));
+            } else {
+                setSimplifyError(data.error || data.text || 'Error en la simplificación');
+            }
         } catch (e: any) { setSimplifyError(e.message); }
         finally { setSimplifyingStatus(prev => ({ ...prev, [currentKey]: false })); }
     };
@@ -694,6 +814,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
     };
 
     const renderHighlightedText = (text: string, highlight: string) => {
+        if (text === null || text === undefined) return '';
         if (!highlight || highlight.length < 3) return text;
         const variants = new Set<string>();
         variants.add(highlight.toUpperCase());
@@ -808,7 +929,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
     };
 
     return (
-        <div className={isClosing ? 'animate-fade-out' : 'animate-fade-in'} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(5, 8, 16, 0.4)', backdropFilter: 'blur(4px)', zIndex: 99999, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px', opacity: 0 }}>
+        <div className={isClosing ? 'animate-fade-out' : 'animate-fade-in'} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(5, 8, 16, 0.4)', backdropFilter: 'blur(4px)', zIndex: 99999, display: isHidden ? 'none' : 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px', opacity: 0 }}>
             <style>{`
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
                 @keyframes fadeOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-5px); } }
@@ -1484,6 +1605,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                     padding: 16px;
                     position: relative;
                     box-shadow: inset 0 0 20px rgba(0, 240, 255, 0.01);
+                    overflow: hidden;
                 }
                 
                 .spain-subject-dossier-card {
@@ -1656,7 +1778,7 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                     opacity: 1;
                 }
             `}</style>
-            <div className={`glass-panel custom-scrollbar ${isClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`} style={{ width: '95vw', maxWidth: '1380px', height: '85vh', display: 'flex', flexDirection: 'column', background: 'rgba(11, 17, 32, 0.98)', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '16px', overflow: 'hidden' }}>
+            <div className={`glass-panel ${isClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`} style={{ width: '95vw', maxWidth: '1380px', height: '85vh', display: 'flex', flexDirection: 'column', background: 'rgba(11, 17, 32, 0.98)', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '16px', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 40px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                         <div style={{ width: '48px', height: '48px', background: 'rgba(0, 240, 255, 0.05)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(0, 240, 255, 0.2)' }}><Search size={22} color="var(--accent-cyan)" /></div>
@@ -1690,12 +1812,12 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                                     className={`sidebar-person-btn ${activePersonIndex === idx ? 'active' : ''}`}
                                 >
                                     {p.isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{idx === 0 && !results?._advanced ? 'PADRÓN' : p.name}</span>
                                 </button>
                             ))}
                         </div>
                     )}
-                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
                         {((people.length > 1 || tabs.length > 1) || localStorage.getItem('advanced_search_enabled') === 'true') && (
                             <div style={{ position: 'relative', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.01)', display: 'flex', alignItems: 'center', height: '60px' }}>
                                 <button className="tab-nav-btn" disabled={!canScrollLeft} onClick={() => scrollTabs('left')}><ChevronLeft size={18} /></button>
@@ -1730,15 +1852,15 @@ const SearchResultsModal: React.FC<SearchResultsModalProps> = ({ results, query,
                                     (() => {
                                         const activeTab = tabs.find(t => t.id === activeTabId);
                                         const resultsToRender = activeTab?.results || [];
-                                        const highlightVal = activeTab?.type === 'strong' ? activeTab.label : '';
-                                        if (resultsToRender.length === 0) {
+                                        const highlightVal = activeTab?.type === 'original' ? activePerson.query : (activeTab?.label || activePerson.query);
+                                        if (resultsToRender.length === 0 && !isProcessing) {
                                             return (
-                                                <div style={{ 
-                                                    display: 'flex', 
-                                                    flexDirection: 'column', 
-                                                    alignItems: 'center', 
-                                                    justifyContent: 'center', 
-                                                    padding: '60px 20px', 
+                                                <div style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    padding: '60px 20px',
                                                     textAlign: 'center',
                                                     background: 'rgba(255, 255, 255, 0.01)',
                                                     border: '1px dashed rgba(255, 255, 255, 0.08)',
@@ -2066,7 +2188,7 @@ if (country === 'España') {
                                                                     })()}
                                                                 </div>
 
-                                                                <div className="spain-subject-dossier-card" style={{ flex: 1, height: '370px', display: 'flex', flexDirection: 'column', padding: '16px 20px' }}>
+                                                                <div className="spain-subject-dossier-card" style={{ flex: 1, height: '370px', display: 'flex', flexDirection: 'column', padding: '16px 20px', position: 'relative', zIndex: 2 }}>
                                                                     {activeResident ? (
                                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%' }}>
                                                                             
@@ -2156,11 +2278,11 @@ if (country === 'España') {
                                                                                     </div>
                                                                                 </div>
 
-                                                                                {/* RELACION Widget */}
-                                                                                <div style={{ background: isObj ? 'rgba(255,42,95,0.05)' : (isFamily ? 'rgba(255,196,0,0.05)' : 'rgba(0, 0, 0, 0.25)'), border: `1px solid ${isObj ? 'rgba(255,42,95,0.15)' : (isFamily ? 'rgba(255,196,0,0.15)' : 'rgba(255,255,255,0.06)')}`, borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                                                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '4px' }}><Users size={10} color={isObj ? '#ff2a5f' : (isFamily ? '#ffc400' : 'var(--accent-cyan)')} /> RELACIÓN</div>
-                                                                                    <div style={{ fontSize: '13px', color: isObj ? '#ff2a5f' : (isFamily ? '#ffc400' : '#fff'), fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                                                        {activeResident.relacion || 'COHABITANTE'}
+                                                                                {/* LOCALIDAD Widget */}
+                                                                                <div style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '4px' }}><Database size={10} color="var(--accent-cyan)" /> LOCALIDAD</div>
+                                                                                    <div style={{ fontSize: '12px', color: dir.codigo_postal && cpMap[dir.codigo_postal] ? '#fff' : 'rgba(255,255,255,0.25)', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", textTransform: 'uppercase', letterSpacing: '0.3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                                        {dir.codigo_postal && cpMap[dir.codigo_postal] ? cpMap[dir.codigo_postal] : '—'}
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
@@ -2191,56 +2313,68 @@ if (country === 'España') {
                                                                             
                                                                             {/* ACTION BLOCK */}
                                                                             <div style={{ marginTop: '8px' }}>
-                                                                                {!isObj ? (
-                                                                                    <button 
-                                                                                        onClick={() => addPerson(activeResident.nombre, activeResident.nombre)}
-                                                                                        style={{
-                                                                                            width: '100%',
-                                                                                            background: 'rgba(255, 42, 95, 0.05)',
-                                                                                            border: '1px solid rgba(255, 42, 95, 0.3)',
-                                                                                            color: '#ff2a5f',
-                                                                                            padding: '8px 12px',
-                                                                                            borderRadius: '8px',
-                                                                                            fontSize: '10px',
-                                                                                            fontWeight: 800,
-                                                                                            letterSpacing: '1.5px',
-                                                                                            cursor: 'pointer',
-                                                                                            transition: 'all 0.3s ease',
-                                                                                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
-                                                                                            display: 'flex',
-                                                                                            alignItems: 'center',
-                                                                                            justifyContent: 'center',
-                                                                                            gap: '6px',
-                                                                                            fontFamily: "'JetBrains Mono', monospace"
-                                                                                        }}
-                                                                                        onMouseEnter={(e) => {
-                                                                                            e.currentTarget.style.background = 'rgba(255, 42, 95, 0.15)';
-                                                                                            e.currentTarget.style.borderColor = 'rgba(255, 42, 95, 0.5)';
-                                                                                            e.currentTarget.style.boxShadow = '0 0 12px rgba(255, 42, 95, 0.3)';
-                                                                                        }}
-                                                                                        onMouseLeave={(e) => {
-                                                                                            e.currentTarget.style.background = 'rgba(255, 42, 95, 0.05)';
-                                                                                            e.currentTarget.style.borderColor = 'rgba(255, 42, 95, 0.3)';
-                                                                                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
-                                                                                        }}
-                                                                                    >
-                                                                                        <Activity size={12} /> INVESTIGAR EN RED
-                                                                                    </button>
-                                                                                ) : (
-                                                                                    <div style={{ 
-                                                                                        border: '1px dashed rgba(255,255,255,0.1)', 
-                                                                                        borderRadius: '8px', 
-                                                                                        padding: '8px 12px', 
-                                                                                        textAlign: 'center',
-                                                                                        fontSize: '10px',
-                                                                                        color: 'rgba(255,255,255,0.4)',
-                                                                                        fontFamily: "'JetBrains Mono', monospace",
-                                                                                        letterSpacing: '0.8px',
-                                                                                        textTransform: 'uppercase'
-                                                                                    }}>
-                                                                                        SUJETO CENTRAL FOCALIZADO EN SISTEMA
-                                                                                    </div>
-                                                                                )}
+                                                                                {(() => {
+                                                                                    const residentNorm = activeResident?.nombre?.trim().toUpperCase().replace(/\s+/g, ' ');
+                                                                                    const alreadyInvestigated = peopleRef.current.some((p, i) => i > 0 && p && p.name === residentNorm);
+                                                                                    if (alreadyInvestigated) {
+                                                                                        return (
+                                                                                            <div style={{
+                                                                                                border: '1px solid rgba(0, 240, 255, 0.2)',
+                                                                                                borderRadius: '8px',
+                                                                                                padding: '8px 12px',
+                                                                                                textAlign: 'center',
+                                                                                                fontSize: '10px',
+                                                                                                color: 'var(--accent-cyan)',
+                                                                                                fontFamily: "'JetBrains Mono', monospace",
+                                                                                                letterSpacing: '0.8px',
+                                                                                                textTransform: 'uppercase',
+                                                                                                background: 'rgba(0, 240, 255, 0.04)',
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                justifyContent: 'center',
+                                                                                                gap: '6px'
+                                                                                            }}>
+                                                                                                <Shield size={11} /> EN EXPEDIENTE
+                                                                                            </div>
+                                                                                        );
+                                                                                    }
+                                                                                    return (
+                                                                                        <button
+                                                                                            onClick={() => addPerson(activeResident.nombre, activeResident.nombre)}
+                                                                                            style={{
+                                                                                                width: '100%',
+                                                                                                background: 'rgba(255, 42, 95, 0.05)',
+                                                                                                border: '1px solid rgba(255, 42, 95, 0.3)',
+                                                                                                color: '#ff2a5f',
+                                                                                                padding: '8px 12px',
+                                                                                                borderRadius: '8px',
+                                                                                                fontSize: '10px',
+                                                                                                fontWeight: 800,
+                                                                                                letterSpacing: '1.5px',
+                                                                                                cursor: 'pointer',
+                                                                                                transition: 'all 0.3s ease',
+                                                                                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                justifyContent: 'center',
+                                                                                                gap: '6px',
+                                                                                                fontFamily: "'JetBrains Mono', monospace"
+                                                                                            }}
+                                                                                            onMouseEnter={(e) => {
+                                                                                                e.currentTarget.style.background = 'rgba(255, 42, 95, 0.15)';
+                                                                                                e.currentTarget.style.borderColor = 'rgba(255, 42, 95, 0.5)';
+                                                                                                e.currentTarget.style.boxShadow = '0 0 12px rgba(255, 42, 95, 0.3)';
+                                                                                            }}
+                                                                                            onMouseLeave={(e) => {
+                                                                                                e.currentTarget.style.background = 'rgba(255, 42, 95, 0.05)';
+                                                                                                e.currentTarget.style.borderColor = 'rgba(255, 42, 95, 0.3)';
+                                                                                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+                                                                                            }}
+                                                                                        >
+                                                                                            <Activity size={12} /> INVESTIGAR EN RED
+                                                                                        </button>
+                                                                                    );
+                                                                                })()}
                                                                             </div>
                                                                         </div>
                                                                     ) : (
@@ -2258,21 +2392,42 @@ if (country === 'España') {
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '24px' }}>
                                                 {resultsToRender.map((source: any, idx: number) => {
                                                     const isBoliviaSql = country === 'Bolivia' && (source.content?.includes('INSERT') || source._source_content?.includes('INSERT'));
-                                                    const isArgentina = country === 'Argentina';
-                                                    if (isBoliviaSql || isArgentina) {
-                                                        let data = isBoliviaSql ? (parseBoliviaSql(source.content || source._source_content) || source) : source;
-                                                        if (!data.edad) data.edad = calculateAge(data.fecha_nacimiento || data.nacimiento);
-                                                        const name = data.nombre_completo || data.nombre || data.nombres || 'REGISTRO';
-                                                        const dni = data.nroDocumento || data.dni || data.documento || 'N/A';
+                                                    const isArgentina = country === 'Argentina' && (source.nombre_completo || source.dni || source.domicilio);
+                                                    if (isArgentina) {
+                                                        const name = String(source.nombre_completo || 'REGISTRO');
+                                                        const dni = String(source.dni || 'N/A');
+                                                        const systemId = String(source.id || '');
+                                                        const skipKeys = new Set(['id','nombre_completo','dni','_index','_score','_id','_type']);
                                                         return (
                                                             <div key={idx} className="premium-card" style={{ padding: '32px', borderRadius: '16px' }}>
                                                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'flex-start' }}>
                                                                     <div><h3 style={{ margin: 0, fontSize: '20px', fontWeight: 900, color: '#fff', textTransform: 'uppercase' }}>{renderHighlightedText(name, highlightVal)}</h3><div style={{ color: 'var(--accent-cyan)', fontSize: '14px', fontWeight: 700, marginTop: '4px' }}>DNI: {renderHighlightedText(dni, highlightVal)}</div></div>
-                                                                    <div style={{ textAlign: 'right' }}><div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', fontWeight: 800 }}>ID SISTEMA</div><div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace' }}>{renderHighlightedText(data.id || source._id, highlightVal)}</div></div>
+                                                                    {systemId && <div style={{ textAlign: 'right' }}><div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', fontWeight: 800 }}>ID SISTEMA</div><div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace' }}>{systemId}</div></div>}
                                                                 </div>
                                                                 <div style={{ height: '1px', background: 'linear-gradient(90deg, rgba(0, 240, 255, 0.2), transparent)', marginBottom: '24px' }} />
                                                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-                                                                    {Object.entries(data).filter(([k, v]) => !['id','nombre','nombres','nombre_completo','dni','documento','nroDocumento','content','_index','_score','_id'].includes(k.toLowerCase()) && v && v !== 'NULL').map(([k, v], i) => (<div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}><span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', fontWeight: 800, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</span><span style={{ fontSize: '14px', color: '#e2e8f0', fontWeight: 500 }}>{renderHighlightedText(String(v), highlightVal)}</span></div>))}
+                                                                    {Object.entries(source).filter(([k, v]) => !skipKeys.has(k) && v !== null && v !== undefined && v !== '').map(([k, v], i) => (<div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}><span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', fontWeight: 800, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</span><span style={{ fontSize: '14px', color: '#e2e8f0', fontWeight: 500 }}>{renderHighlightedText(String(v), highlightVal)}</span></div>))}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (isBoliviaSql) {
+                                                        let data = parseBoliviaSql(source.content || source._source_content) || source;
+                                                        const edad = calculateAge(data.fecha_nacimiento || data.nacimiento);
+                                                        if (!data.edad && edad) data = { ...data, edad };
+                                                        const name = data.nombre_completo || data.nombre || data.nombres || 'REGISTRO';
+                                                        const dni = data.nroDocumento || data.dni || data.documento || 'N/A';
+                                                        const systemId = String(data.id || source._id || '');
+                                                        const skipHeader = new Set(['id','nombre','nombres','nombre_completo','primerApellido','segundoApellido','dni','documento','nroDocumento','content','_index','_score','_id','_type','edad']);
+                                                        return (
+                                                            <div key={idx} className="premium-card" style={{ padding: '32px', borderRadius: '16px' }}>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'flex-start' }}>
+                                                                    <div><h3 style={{ margin: 0, fontSize: '20px', fontWeight: 900, color: '#fff', textTransform: 'uppercase' }}>{renderHighlightedText(name, highlightVal)}</h3><div style={{ color: 'var(--accent-cyan)', fontSize: '14px', fontWeight: 700, marginTop: '4px' }}>DNI: {renderHighlightedText(dni, highlightVal)}</div></div>
+                                                                    {systemId && <div style={{ textAlign: 'right' }}><div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', fontWeight: 800 }}>ID SISTEMA</div><div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace' }}>{systemId}</div></div>}
+                                                                </div>
+                                                                <div style={{ height: '1px', background: 'linear-gradient(90deg, rgba(0, 240, 255, 0.2), transparent)', marginBottom: '24px' }} />
+                                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                                                                    {Object.entries(data).filter(([k, v]) => !skipHeader.has(k.toLowerCase()) && v !== null && v !== undefined && v !== '' && v !== 'NULL').map(([k, v], i) => (<div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}><span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', fontWeight: 800, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</span><span style={{ fontSize: '14px', color: '#e2e8f0', fontWeight: 500 }}>{renderHighlightedText(String(v), highlightVal)}</span></div>))}
                                                                 </div>
                                                             </div>
                                                         );

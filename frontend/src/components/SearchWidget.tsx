@@ -1,7 +1,21 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Loader2, AlertCircle, Database } from 'lucide-react';
+
+type CpData = Record<string, { prov: string; pob: string; rows: string[] }>;
+const _cpCache: Record<string, Promise<CpData>> = {};
+const getCpData = (prefix: string): Promise<CpData> => {
+    if (!_cpCache[prefix]) {
+        _cpCache[prefix] = import(`../data/cp/cp${prefix}.ts`).then(m => m.default);
+    }
+    return _cpCache[prefix];
+};
 import SearchResultsModal from './SearchResultsModal';
+import CpLookupPanel from './CpLookupPanel';
+import FichaCensado from './FichaCensado';
+import Modelo030 from './Modelo030';
+import FichaSelector from './FichaSelector';
+import type { FichaTipo } from './FichaSelector';
 
 interface SearchWidgetProps {
     region: {
@@ -32,11 +46,16 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
     const [results, setResults] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
     const [showModal, setShowModal] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
     const [isClosingModal, setIsClosingModal] = useState(false);
     const [isPadronMode, setIsPadronMode] = useState(false);
     const [isDniTool, setIsDniTool] = useState(false);
     const [dniResult, setDniResult] = useState<string | null>(null);
+    const [isCpTool, setIsCpTool] = useState(false);
+    const [cpResult, setCpResult] = useState<{ cp: string; prov: string; pob: string; rows: string[] } | null>(null);
     const [isAdvancedEnabled, setIsAdvancedEnabled] = useState(localStorage.getItem('advanced_search_enabled') === 'true');
+    const [showFichaSelector, setShowFichaSelector] = useState(false);
+    const [activeFicha, setActiveFicha] = useState<FichaTipo | null>(null);
 
     // Monitor advanced search setting
     React.useEffect(() => {
@@ -57,7 +76,9 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
         setResults(null);
         setError(null);
         setShowModal(false);
+        setModalVisible(false);
         setDniResult(null);
+        setCpResult(null);
     }, [region.id]);
 
     // Mutual exclusion logic
@@ -76,6 +97,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
             setIsAdvancedEnabled(false);
             localStorage.setItem('advanced_search_enabled', 'false');
             setIsDniTool(false);
+            setIsCpTool(false);
         }
     };
 
@@ -86,6 +108,18 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
             setIsAdvancedEnabled(false);
             localStorage.setItem('advanced_search_enabled', 'false');
             setIsPadronMode(false);
+            setIsCpTool(false);
+        }
+    };
+
+    const toggleCpTool = () => {
+        const newState = !isCpTool;
+        setIsCpTool(newState);
+        if (newState) {
+            setIsAdvancedEnabled(false);
+            localStorage.setItem('advanced_search_enabled', 'false');
+            setIsPadronMode(false);
+            setIsDniTool(false);
         }
     };
 
@@ -110,6 +144,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
         setIsClosingModal(true);
         setTimeout(() => {
             setShowModal(false);
+            setModalVisible(false);
             setIsClosingModal(false);
         }, 250);
     };
@@ -130,6 +165,27 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
             return;
         }
 
+        if (isCpTool && region.id === 'es') {
+            const cp = query.trim().replace(/\D/g, '').padStart(5, '0').slice(0, 5);
+            setLoading(true);
+            setError(null);
+            setCpResult(null);
+            try {
+                const data = await getCpData(cp.slice(0, 2));
+                const entry = data[cp];
+                if (entry) {
+                    setCpResult({ cp, prov: entry.prov, pob: entry.pob, rows: entry.rows });
+                } else {
+                    setError(`CP ${cp} no encontrado en la base de datos.`);
+                }
+            } catch {
+                setError('Error al cargar datos de códigos postales.');
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
         if (!target) return;
 
         setLoading(true);
@@ -143,7 +199,8 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
         if (region.id === 'es' && isAdvancedEnabled && !isPadronMode && !isDniTool) {
             setResults({ _advanced: true });
             setShowModal(true);
-            setLoading(false);
+            setModalVisible(false);
+            // loading stays true until onReady fires from modal SSE
             return;
         }
 
@@ -176,6 +233,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
             const data = await response.json();
             setResults(data);
             setShowModal(true);
+            setModalVisible(true);
         } catch (err: any) {
             console.error('Search operation failed:', err);
             setError(err.message || 'LINK_ERROR: Proceso de inteligencia fallido');
@@ -258,7 +316,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                 gap: '8px'
             }}>
                 <Database size={16} color="var(--accent-cyan)" />
-                {isDniTool ? 'Herramienta: Completar identificador' : `Buscador de Inteligencia en ${region.country}`}
+                {isDniTool ? 'Herramienta: Completar identificador' : isCpTool ? 'Consulta de Código Postal' : `Buscador de Inteligencia en ${region.country}`}
             </h4>
 
             <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
@@ -270,7 +328,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                         type="text"
                         value={query}
                         onChange={(e) => { setQuery(e.target.value); setDniResult(null); }}
-                        placeholder={isDniTool ? "Introduce DNI/NIE sin letra..." : isPadronMode ? "Ingresa nombres y apellidos..." : "Ingresa un DNI, Nombre o Email..."}
+                        placeholder={isDniTool ? "Introduce DNI/NIE sin letra..." : isPadronMode ? "Ingresa nombres y apellidos..." : isCpTool ? "Introduce código postal (5 dígitos)..." : "Ingresa un DNI, Nombre o Email..."}
                         autoComplete="off"
                         autoCorrect="off"
                         spellCheck="false"
@@ -307,7 +365,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                         transform: loading ? 'scale(0.98)' : 'none'
                     }}
                 >
-                    {loading ? <Loader2 size={16} className="animate-spin" /> : isDniTool ? 'CALCULAR' : 'BUSCAR'}
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : isDniTool ? 'CALCULAR' : isCpTool ? 'CONSULTAR' : 'BUSCAR'}
                 </button>
             </form>
 
@@ -368,6 +426,17 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                 </div>
             )}
 
+            {cpResult && createPortal(
+                <CpLookupPanel
+                    cp={cpResult.cp}
+                    prov={cpResult.prov}
+                    pob={cpResult.pob}
+                    rows={cpResult.rows}
+                    onClose={() => setCpResult(null)}
+                />,
+                document.body
+            )}
+
             {region.id === 'es' && (
                 <div style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div
@@ -395,6 +464,51 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                         </div>
                         <span style={{ fontWeight: isDniTool ? 700 : 500, letterSpacing: '0.5px' }}>COMPLETAR IDENTIFICADOR</span>
                     </div>
+
+                    <div
+                        onClick={toggleCpTool}
+                        style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '12px', color: isCpTool ? 'var(--accent-cyan)' : 'var(--text-secondary)', transition: 'all 0.3s' }}
+                    >
+                        <div style={{
+                            width: '32px', height: '18px', background: isCpTool ? 'rgba(0, 240, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                            border: `1px solid ${isCpTool ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.2)'}`, borderRadius: '20px', position: 'relative', transition: 'all 0.3s'
+                        }}>
+                            <div style={{ width: '12px', height: '12px', background: isCpTool ? 'var(--accent-cyan)' : '#888', borderRadius: '50%', position: 'absolute', top: '2px', left: isCpTool ? '16px' : '2px', transition: 'all 0.3s ease-in-out' }} />
+                        </div>
+                        <span style={{ fontWeight: isCpTool ? 700 : 500, letterSpacing: '0.5px' }}>CONSULTA DE CÓDIGO POSTAL</span>
+                    </div>
+
+                    <button
+                        onClick={() => setShowFichaSelector(true)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(26, 58, 107, 0.2)',
+                            border: '1px solid rgba(59, 130, 246, 0.4)',
+                            color: 'rgba(147, 197, 253, 0.9)',
+                            padding: '8px 14px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            letterSpacing: '0.5px',
+                            transition: 'all 0.2s',
+                            width: '100%',
+                            justifyContent: 'center',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(26, 58, 107, 0.4)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(59, 130, 246, 0.7)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(26, 58, 107, 0.2)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(59, 130, 246, 0.4)'; }}
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                            <polyline points="10 9 9 9 8 9"/>
+                        </svg>
+                        FICHA ADMINISTRATIVA
+                    </button>
                 </div>
             )}
 
@@ -411,6 +525,24 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                 </div>
             )}
 
+            {showFichaSelector && createPortal(
+                <FichaSelector
+                    onPick={(tipo) => { setShowFichaSelector(false); setActiveFicha(tipo); }}
+                    onClose={() => setShowFichaSelector(false)}
+                />,
+                document.body
+            )}
+
+            {activeFicha === 'ta1' && createPortal(
+                <FichaCensado onClose={() => setActiveFicha(null)} />,
+                document.body
+            )}
+
+            {activeFicha === 'm030' && createPortal(
+                <Modelo030 onClose={() => setActiveFicha(null)} />,
+                document.body
+            )}
+
             {showModal && results && createPortal(
                 <SearchResultsModal
                     results={results}
@@ -418,6 +550,8 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                     country={region.country}
                     onClose={handleCloseModal}
                     isClosing={isClosingModal}
+                    isHidden={!modalVisible}
+                    onReady={results?._advanced ? () => { setLoading(false); setModalVisible(true); } : undefined}
                 />,
                 document.body
             )}
