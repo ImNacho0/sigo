@@ -54,11 +54,7 @@ var (
 )
 
 func lastScanFilePath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "last_scan.json"
-	}
-	return filepath.Join(filepath.Dir(exe), "last_scan.json")
+	return filepath.Join("configs", "last_scan.json")
 }
 
 func saveLastScan() {
