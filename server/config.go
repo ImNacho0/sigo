@@ -41,6 +41,16 @@ var (
 var DiscordBridgeToken string
 
 var torClient *http.Client
+
+// aiClient is a direct HTTP client with no proxy — used for external AI API calls.
+// http.DefaultClient may inherit system/env proxies (e.g. Tor) which AI providers block.
+var aiClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		Proxy: nil,
+	},
+}
+
 var INCIVE_FILES []string
 
 // Cache structures

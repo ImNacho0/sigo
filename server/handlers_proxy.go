@@ -644,7 +644,7 @@ func callGroq(prompt string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+GroqAPIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := aiClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error calling Groq API: %v", err)
 	}

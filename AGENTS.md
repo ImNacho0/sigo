@@ -99,8 +99,7 @@ server           →  ES direct → advanced-search (ES_HOST/USER/PASSWD)
 | ES_HOST, ES_USER, ES_PASSWD | api/app.py, server/config.go | Elasticsearch connection |
 | INDEX_NAME | api/app.py + indexer | ES index name |
 | AUTHORIZED_TOKENS | api/app.py | JSON array of Bearer tokens |
-| GEMINI_API_KEY | api/app.py | Google Gemini AI (padrón CP lookup) |
-| GROQ_API_KEY | server/config.go | Groq AI (simplify/análisis de datos) |
+| GROQ_API_KEY | server/config.go, api/app.py | Groq AI — modelo `llama-3.3-70b-versatile`. Usado en simplify (Go) y padrón CP lookup (Python). |
 | DISCORD_SEARCH_WEBHOOK | api/app.py, server/config.go | Search audit logging |
 | DISCORD_CHAT_WEBHOOK | server/config.go | Chat audit logging |
 | BACKEND_BEARER_TOKEN | server/config.go | Default if no AUTHORIZED_TOKENS |
