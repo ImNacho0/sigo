@@ -8,7 +8,6 @@ import unicodedata
 from flask_cors import CORS
 
 import logging
-import requests  # 👈 para Discord
 
 # Try to load .env from current directory, or from parent directory (e.g., if running from api/)
 env_path = ".env"
@@ -38,7 +37,6 @@ if not AUTHORIZED_TOKENS:
         AUTHORIZED_TOKENS = [single_token]
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-DISCORD_WEBHOOK = os.getenv("DISCORD_SEARCH_WEBHOOK")  # 👈 Unificado con Go
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
@@ -374,38 +372,6 @@ def full_token():
     return "—"
 
 
-# ================= DISCORD LOG =================
-def send_to_discord_log(data):
-    if not DISCORD_WEBHOOK:
-        return
-    embed = {
-        "username": "uco-api",
-        "embeds": [
-            {
-                "title": "API Log",
-                "color": 0x00FF00
-                if data["status"] < 400
-                else 0xFFCC00
-                if data["status"] < 500
-                else 0xFF0000,
-                "fields": [
-                    {"name": "Hora", "value": data["hora"], "inline": False},
-                    {"name": "Endpoint", "value": data["path"], "inline": True},
-                    {"name": "Método", "value": data["method"], "inline": True},
-                    {"name": "IP", "value": data["ip"], "inline": False},
-                    {"name": "Token", "value": data["token"], "inline": False},
-                    {"name": "Query", "value": data["query"] or "—", "inline": False},
-                    {"name": "Status", "value": str(data["status"]), "inline": True},
-                ],
-            }
-        ],
-    }
-    try:
-        requests.post(DISCORD_WEBHOOK, json=embed, timeout=2)
-    except:
-        pass
-
-
 # ================= LOG LINEAL =================
 @app.before_request
 def before():
@@ -443,20 +409,6 @@ def after(response):
         f"IP {ip} | TOKEN {token}{GRAY}{query_part}{RESET} | "
         f"{status} {label}"
     )
-
-    # Padrón is already logged by the Go server — skip to avoid duplicate Discord entry
-    if path != "/padronesp":
-        send_to_discord_log(
-            {
-                "hora": hora,
-                "method": method,
-                "path": path,
-                "ip": ip,
-                "token": token,
-                "query": q,
-                "status": status,
-            }
-        )
 
     return response
 
