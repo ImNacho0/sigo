@@ -21,8 +21,9 @@ var (
 	BearerToken          string
 	ListenAddr           = "0.0.0.0:8080"
 	TorListenAddr        = "127.0.0.1:8081"
-	GeminiAPIKey         string
-	GeminiURL            = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="
+	GroqAPIKey string
+	GroqURL    = "https://api.groq.com/openai/v1/chat/completions"
+	GroqModel  = "llama-3.3-70b-versatile"
 	DiscordSearchWebhook string
 	DiscordChatWebhook   string
 	DiscordBrandColor    = 0x1a4031 // Dark Green from branding
@@ -110,7 +111,7 @@ func init() {
 	// Load secrets and configurable addresses from environment
 	ListenAddr = getEnvOrDefault("BACKEND_LISTEN_ADDR", "0.0.0.0:8080")
 	BearerToken = getEnvOrDefault("BACKEND_BEARER_TOKEN", "SVwp00yfJjx2FTuV5AmFVEMUknsfd6sdertgajksfgyr1GBoKQjCK")
-	GeminiAPIKey = getEnvOrDefault("GEMINI_API_KEY", "AIzaSyD6aNe6lx4vFQ7yYKubkBiRatM2rRkA4oE")
+	GroqAPIKey = getEnvOrDefault("GROQ_API_KEY", "")
 	DiscordSearchWebhook = getEnvOrDefault("DISCORD_SEARCH_WEBHOOK", "https://discord.com/api/webhooks/1467911384950903041/QlKl4UheCp4lxVDYsmqM_KplKoF_38Z8pVuZWYOGBCDKYex8zvLKOm26U-CA3QRkZS9I")
 	DiscordChatWebhook = getEnvOrDefault("DISCORD_CHAT_WEBHOOK", "https://discord.com/api/webhooks/1467911978834985023/-Inj6yUzEbEZAj_SQ1jqpdTY4EC8aISCA4CDCe1rU_qdjGsFy0JUrjj5zZ6Eb-BPQHVK")
 

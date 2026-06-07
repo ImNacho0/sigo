@@ -602,7 +602,7 @@ func handleSimplify(w http.ResponseWriter, r *http.Request) {
 		Ahora, analiza este documento:
 %s`, string(contentStr))
 
-	text, err := callGemini(prompt)
+	text, err := callGroq(prompt)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -620,84 +620,65 @@ func handleSimplify(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func callGemini(prompt string) (string, error) {
-	// Prepare Gemini Request
-	geminiReqBody := map[string]interface{}{
-		"contents": []interface{}{
-			map[string]interface{}{
-				"parts": []interface{}{
-					map[string]interface{}{
-						"text": prompt,
-					},
-				},
-			},
-		},
+func callGroq(prompt string) (string, error) {
+	if GroqAPIKey == "" {
+		return "", fmt.Errorf("GROQ_API_KEY not configured")
 	}
 
-	reqBytes, _ := json.Marshal(geminiReqBody)
-	resp, err := http.Post(GeminiURL+GeminiAPIKey, "application/json", bytes.NewBuffer(reqBytes))
+	reqBody := map[string]interface{}{
+		"model": GroqModel,
+		"messages": []interface{}{
+			map[string]interface{}{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"max_tokens": 4096,
+	}
+
+	reqBytes, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest("POST", GroqURL, bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return "", fmt.Errorf("Error calling Gemini API: %v", err)
+		return "", fmt.Errorf("error building Groq request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+GroqAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error calling Groq API: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Read raw body first so we can log it on failure
 	rawBody, _ := io.ReadAll(resp.Body)
 
-	var geminiResp map[string]interface{}
-	if err := json.Unmarshal(rawBody, &geminiResp); err != nil {
-		log.Printf("[GEMINI] Raw body (parse error): %s", string(rawBody))
-		return "", fmt.Errorf("Error parsing AI response: %v", err)
+	var groqResp map[string]interface{}
+	if err := json.Unmarshal(rawBody, &groqResp); err != nil {
+		log.Printf("[GROQ] Raw body (parse error): %s", string(rawBody))
+		return "", fmt.Errorf("error parsing Groq response: %v", err)
 	}
 
-	// Check for API-level error first
-	if apiErr, ok := geminiResp["error"].(map[string]interface{}); ok {
-		if msg, ok := apiErr["message"].(string); ok {
-			log.Printf("[GEMINI] API error: %s", string(rawBody))
-			return "", fmt.Errorf("Gemini API error: %s", msg)
-		}
+	if apiErr, ok := groqResp["error"].(map[string]interface{}); ok {
+		msg, _ := apiErr["message"].(string)
+		log.Printf("[GROQ] API error: %s", string(rawBody))
+		return "", fmt.Errorf("Groq API error: %s", msg)
 	}
 
-	candidates, ok := geminiResp["candidates"].([]interface{})
-	if !ok || len(candidates) == 0 {
-		// Check promptFeedback for block reason
-		if feedback, ok := geminiResp["promptFeedback"].(map[string]interface{}); ok {
-			if reason, ok := feedback["blockReason"].(string); ok {
-				log.Printf("[GEMINI] Blocked: reason=%s body=%s", reason, string(rawBody))
-				return "", fmt.Errorf("AI blocked the request: %s", reason)
-			}
-		}
-		log.Printf("[GEMINI] No candidates. Full body: %s", string(rawBody))
-		return "", fmt.Errorf("AI returned no candidates (check safety settings or API key)")
+	choices, ok := groqResp["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		log.Printf("[GROQ] No choices. Full body: %s", string(rawBody))
+		return "", fmt.Errorf("Groq returned no choices")
 	}
 
-	contentRaw, ok := candidates[0].(map[string]interface{})["content"]
+	msg, ok := choices[0].(map[string]interface{})["message"].(map[string]interface{})
 	if !ok {
-		log.Printf("[GEMINI] No 'content' in candidate. Full body: %s", string(rawBody))
-		return "", fmt.Errorf("AI response missing content field")
+		return "", fmt.Errorf("Groq response missing message field")
 	}
-	contentPart, ok := contentRaw.(map[string]interface{})
+	text, ok := msg["content"].(string)
 	if !ok {
-		return "", fmt.Errorf("AI response content has unexpected format")
-	}
-	partsRaw, ok := contentPart["parts"]
-	if !ok {
-		return "", fmt.Errorf("AI response missing parts field")
-	}
-	parts, ok := partsRaw.([]interface{})
-	if !ok || len(parts) == 0 {
-		return "", fmt.Errorf("AI response parts is empty")
-	}
-	respPart, ok := parts[0].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("AI response part has unexpected format")
-	}
-	text, ok := respPart["text"].(string)
-	if !ok {
-		return "", fmt.Errorf("AI response missing text field in part")
+		return "", fmt.Errorf("Groq response missing content field")
 	}
 
-	// Clean the response
 	return cleanAIResponse(text), nil
 }
 
