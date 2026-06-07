@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -31,16 +34,17 @@ var statsAliasToCountry = map[string]string{
 	"ecuador":    "ec",
 	"venezuela":  "ve",
 	"paraguay":   "py",
+	"mexico":     "mx",
 }
 
 // statsAliasOrder define el orden estable de aliases para construir el _msearch
 var statsAliasOrder = []string{
 	"espana", "argentina", "elsalvador", "nicaragua", "peru",
-	"chile", "bolivia", "ecuador", "venezuela", "paraguay",
+	"chile", "bolivia", "ecuador", "venezuela", "paraguay", "mexico",
 }
 
 // expectedCountries es la lista de IDs de países que devuelve la API
-var expectedCountries = []string{"es", "cl", "pe", "ar", "sv", "ni", "bo", "ec", "ve", "py"}
+var expectedCountries = []string{"es", "cl", "pe", "ar", "sv", "ni", "bo", "ec", "ve", "py", "mx"}
 
 // lastScanByCountry guarda el último escaneo (timestamp) por país.
 // Lo actualiza el indexer vía /api/stats/invalidate.
@@ -48,6 +52,49 @@ var (
 	lastScanByCountry = make(map[string]time.Time)
 	lastScanMux       sync.RWMutex
 )
+
+func lastScanFilePath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "last_scan.json"
+	}
+	return filepath.Join(filepath.Dir(exe), "last_scan.json")
+}
+
+func saveLastScan() {
+	lastScanMux.RLock()
+	data := make(map[string]int64, len(lastScanByCountry))
+	for k, v := range lastScanByCountry {
+		if !v.IsZero() {
+			data[k] = v.Unix()
+		}
+	}
+	lastScanMux.RUnlock()
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	if err := os.WriteFile(lastScanFilePath(), b, 0644); err != nil {
+		log.Printf("Warning: could not save last_scan.json: %v", err)
+	}
+}
+
+func loadLastScan() map[string]time.Time {
+	b, err := os.ReadFile(lastScanFilePath())
+	if err != nil {
+		return nil
+	}
+	var data map[string]int64
+	if err := json.Unmarshal(b, &data); err != nil {
+		return nil
+	}
+	result := make(map[string]time.Time, len(data))
+	for k, ts := range data {
+		result[k] = time.Unix(ts, 0)
+	}
+	return result
+}
 
 // esStatsEntry representa el resultado crudo desde Elasticsearch por país
 type esStatsEntry struct {
@@ -293,20 +340,26 @@ func handleStatsInvalidate(w http.ResponseWriter, r *http.Request) {
 	lastScanByCountry[countryID] = time.Now()
 	lastScanMux.Unlock()
 
+	saveLastScan()
 	invalidateESStatsCache()
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
 
-// initStatsCache inicializa estructuras internas. Sin valores ficticios:
-// doc_count y leakSize vienen de ES; lastScan empieza vacío hasta que el indexer
-// notifique vía /api/stats/invalidate.
+// initStatsCache inicializa estructuras internas cargando el last_scan persistido
+// (si existe). doc_count y leakSize se obtienen de ES en el primer request.
 func initStatsCache() {
+	persisted := loadLastScan()
+
 	lastScanMux.Lock()
 	lastScanByCountry = make(map[string]time.Time, len(expectedCountries))
 	for _, id := range expectedCountries {
-		lastScanByCountry[id] = time.Time{}
+		if t, ok := persisted[id]; ok {
+			lastScanByCountry[id] = t
+		} else {
+			lastScanByCountry[id] = time.Time{}
+		}
 	}
 	lastScanMux.Unlock()
 }

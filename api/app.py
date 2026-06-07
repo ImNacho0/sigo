@@ -735,6 +735,7 @@ def get_stats():
         "ecuador": "ec",
         "venezuela": "ve",
         "paraguay": "py",
+        "mexico": "mx",
     }
 
     stats = {}

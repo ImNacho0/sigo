@@ -178,6 +178,8 @@ Dos repositorios:
 4. `frontend/src/data/mockData.ts`: Añadir entrada `VulnerabilityData` con id, coordenadas, stats.
    `frontend/src/components/SearchWidget.tsx`: Añadir `'id': 'searchXXX'` al mapa de targets.
 5. `web/app.js`: Añadir `<option value="alias">País</option>` en el selector `#alias-selector` del panel de indexación (el indexer usa este alias como nombre del ES alias sobre `spaindb`).
+6. `server/handlers_stats.go`: Añadir el alias en `statsAliasToCountry`, `statsAliasOrder` y el id en `expectedCountries`.
+   `api/app.py`: Añadir `"alias": "id"` en `alias_to_region` dentro de `get_stats()`.
 
 ## COMMANDS
 
