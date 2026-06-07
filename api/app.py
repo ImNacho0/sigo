@@ -332,6 +332,33 @@ def search_par():
     return jsonify({"query": query, "results": hits})
 
 
+# ================= SEARCH MEX =================
+@app.route("/searchmex", methods=["POST"])
+def search_mex():
+    if not check_auth():
+        return jsonify({"error": "No autorizado"}), 401
+
+    query = request.json.get("query", "").strip()
+    request._query_value = query
+
+    if not query:
+        return jsonify({"error": "Query vacío"}), 400
+
+    try:
+        res = es.search(
+            index="mexico",
+            body={
+                "query": {"match": {"content": {"query": query, "operator": "and"}}},
+                "size": 50,
+            },
+        )
+    except Exception as e:
+        return jsonify({"detail": f"Elasticsearch Error (MEX): {str(e)}"}), 500
+
+    hits = res["hits"]["hits"]
+    return jsonify({"query": query, "results": hits})
+
+
 # ================= AUTH =================
 def check_auth():
     auth = request.headers.get("Authorization")

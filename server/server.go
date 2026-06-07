@@ -35,6 +35,7 @@ func main() {
 	mux.HandleFunc("/api/searchnic", handleSearchNic)
 	mux.HandleFunc("/api/searchper", handleSearchPer)
 	mux.HandleFunc("/api/searchchi", handleSearchChi)
+	mux.HandleFunc("/api/searchmex", handleSearchMex)
 	mux.HandleFunc("/api/padronesp", handlePadronEsp)
 	mux.HandleFunc("/api/simplify", handleSimplify)
 	mux.HandleFunc("/api/stats", handleStats)

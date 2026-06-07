@@ -102,6 +102,9 @@ func handleGateway(w http.ResponseWriter, r *http.Request) {
 	case "searchpar":
 		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
 		handleSearchPar(w, r)
+	case "searchmex":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchMex(w, r)
 	case "padronesp":
 		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
 		handlePadronEsp(w, r)
@@ -300,6 +303,10 @@ func handleSearchVen(w http.ResponseWriter, r *http.Request) {
 
 func handleSearchPar(w http.ResponseWriter, r *http.Request) {
 	proxyRequest(w, r, BackendURL+"/searchpar")
+}
+
+func handleSearchMex(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchmex")
 }
 
 func handlePadronEsp(w http.ResponseWriter, r *http.Request) {

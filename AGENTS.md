@@ -29,7 +29,7 @@ sigo/
 | Task | Location | Notes |
 |------|----------|-------|
 | Entender la app | `frontend/src/App.tsx` | Entry point, state, routing |
-| Añadir/modificar UI | `frontend/src/components/` | 14 componentes modales/paneles |
+| Añadir/modificar UI | `frontend/src/components/` | 18 componentes modales/paneles |
 | Añadir país búsqueda | `api/app.py` + `server/handlers_proxy.go` + `frontend/src/data/` | ES index → Go proxy → mapa |
 | Búsqueda avanzada (ES) | `server/handlers_advanced.go` | SSE stream, ES directo, caché |
 | Proxy / gateway unificado | `server/handlers_proxy.go` | `handleGateway` enruta todo |
