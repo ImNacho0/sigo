@@ -444,18 +444,19 @@ def after(response):
         f"{status} {label}"
     )
 
-    # 👇 Enviar a Discord
-    send_to_discord_log(
-        {
-            "hora": hora,
-            "method": method,
-            "path": path,
-            "ip": ip,
-            "token": token,
-            "query": q,
-            "status": status,
-        }
-    )
+    # Padrón is already logged by the Go server — skip to avoid duplicate Discord entry
+    if path != "/padronesp":
+        send_to_discord_log(
+            {
+                "hora": hora,
+                "method": method,
+                "path": path,
+                "ip": ip,
+                "token": token,
+                "query": q,
+                "status": status,
+            }
+        )
 
     return response
 
