@@ -17,7 +17,7 @@ ControlPort 127.0.0.1:9051
 # SERVICIO OCULTO #1 - Principal (UCO-Web)
 # ========================================
 HiddenServiceDir hidden_service_1
-HiddenServicePort 80 127.0.0.1:80
+HiddenServicePort 80 127.0.0.1:8080
 
 # ========================================
 # SERVICIO OCULTO #2 - Alternativo/Respaldo

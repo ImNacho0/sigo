@@ -612,8 +612,9 @@ func handleSimplify(w http.ResponseWriter, r *http.Request) {
 		Ahora, analiza este documento:
 %s`, string(contentStr))
 
-	text, err := callGemini(prompt)
+	text, err := callGroq(prompt)
 	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -628,42 +629,51 @@ func handleSimplify(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func callGemini(prompt string) (string, error) {
-	// Prepare Gemini Request
-	geminiReqBody := map[string]interface{}{
-		"contents": []interface{}{
-			map[string]interface{}{
-				"parts": []interface{}{
-					map[string]interface{}{
-						"text": prompt,
-					},
-				},
-			},
-		},
+func callGroq(prompt string) (string, error) {
+	if GroqAPIKey == "" {
+		return "", fmt.Errorf("GROQ_API_KEY not configured")
 	}
 
-	reqBytes, _ := json.Marshal(geminiReqBody)
-	resp, err := http.Post(GeminiURL+GeminiAPIKey, "application/json", bytes.NewBuffer(reqBytes))
+	reqBody := map[string]interface{}{
+		"model": GroqModel,
+		"messages": []interface{}{
+			map[string]interface{}{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"max_tokens": 4096,
+	}
+
+	reqBytes, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest("POST", GroqURL, bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return "", fmt.Errorf("Error calling Gemini API")
+		return "", fmt.Errorf("error building Groq request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+GroqAPIKey)
+
+	resp, err := aiClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error calling Groq API: %v", err)
 	}
 	defer resp.Body.Close()
 
-	var geminiResp map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
-		return "", fmt.Errorf("Error parsing AI response")
+	var groqResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
+		return "", fmt.Errorf("error parsing Groq response: %v", err)
+	}
+	if len(groqResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices from Groq")
 	}
 
-	candidates, ok := geminiResp["candidates"].([]interface{})
-	if !ok || len(candidates) == 0 {
-		return "", fmt.Errorf("No candidates from AI")
-	}
-	contentPart := candidates[0].(map[string]interface{})["content"].(map[string]interface{})
-	parts := contentPart["parts"].([]interface{})
-	respPart := parts[0].(map[string]interface{})
-	text := respPart["text"].(string)
-
-	// Clean the response
+	text := groqResp.Choices[0].Message.Content
 	return cleanAIResponse(text), nil
 }
 

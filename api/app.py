@@ -1,14 +1,9 @@
 from flask import Flask, request, jsonify
 from elasticsearch import Elasticsearch
 from dotenv import load_dotenv
-import os, json
+import os, json, logging, unicodedata, urllib.request
 from datetime import datetime
-import google.generativeai as genai
-import unicodedata
 from flask_cors import CORS
-
-import logging
-import requests  # 👈 para Discord
 
 # Try to load .env from current directory, or from parent directory (e.g., if running from api/)
 env_path = ".env"
@@ -37,11 +32,32 @@ if not AUTHORIZED_TOKENS:
     if single_token:
         AUTHORIZED_TOKENS = [single_token]
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-DISCORD_WEBHOOK = os.getenv("DISCORD_SEARCH_WEBHOOK")  # 👈 Unificado con Go
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+
+def call_groq(prompt, max_tokens=100):
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY not configured")
+    payload = json.dumps(
+        {
+            "model": GROQ_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+        }
+    ).encode()
+    req = urllib.request.Request(
+        GROQ_URL,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read())
+    return data["choices"][0]["message"]["content"].strip()
 
 
 es = Elasticsearch(ES_HOST, basic_auth=(ES_USER, ES_PASSWD), request_timeout=60)
@@ -447,11 +463,11 @@ def calcular_edad(fecha):
 def obtener_localizacion(direccion):
     cp = direccion[-5:] if direccion[-5:].isdigit() else "DESCONOCIDO"
     try:
-        r = model.generate_content(
+        texto = call_groq(
             f"Devuelve solo Municipio, Provincia y Comunidad Autónoma del CP {cp}",
-            generation_config={"max_output_tokens": 50},
+            max_tokens=50,
         )
-        return cp, r.text.strip()
+        return cp, texto
     except:
         return cp, "Localización no disponible"
 

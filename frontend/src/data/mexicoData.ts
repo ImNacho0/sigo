@@ -32,7 +32,10 @@ export const mexicoStates: StateData[] = [
     { name: 'Veracruz', lines: 5821785 },
     { name: 'Yucatán', lines: 1552516 },
     { name: 'Zacatecas', lines: 1190146 },
+<<<<<<< HEAD
     { name: 'Ciudad de México', lines: 7736264 },
     { name: 'Estado de México', lines: 11911569 },
     { name: 'Baja California Sur Norte', lines: 519518 },
+=======
+>>>>>>> origin/master
 ];
