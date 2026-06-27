@@ -1,7 +1,21 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Loader2, AlertCircle, Database } from 'lucide-react';
+
+type CpData = Record<string, { prov: string; pob: string; rows: string[] }>;
+const _cpCache: Record<string, Promise<CpData>> = {};
+const getCpData = (prefix: string): Promise<CpData> => {
+    if (!_cpCache[prefix]) {
+        _cpCache[prefix] = import(`../data/cp/cp_${prefix}.ts`).then(m => m.default);
+    }
+    return _cpCache[prefix];
+};
 import SearchResultsModal from './SearchResultsModal';
+import CpLookupPanel from './CpLookupPanel';
+import FichaCensado from './FichaCensado';
+import Modelo030 from './Modelo030';
+import FichaSelector from './FichaSelector';
+import type { FichaTipo } from './FichaSelector';
 
 interface SearchWidgetProps {
     region: {
@@ -14,16 +28,15 @@ const targetMapping: Record<string, string> = {
     'es': 'searchesp',
     'ar': 'searcharg',
     'mx': 'searchmex',
-    'co': 'searchcol',
     'cl': 'searchchi',
     'pe': 'searchper',
     'ec': 'searchecu',
     've': 'searchven',
-    'uy': 'searchuru',
     'py': 'searchpar',
     'sv': 'searchslv',
     'ni': 'searchnic',
-    'bo': 'searchbol'
+    'bo': 'searchbol',
+    'ca': 'searchcan'
 };
 
 const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
@@ -32,11 +45,17 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
     const [results, setResults] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
     const [showModal, setShowModal] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
     const [isClosingModal, setIsClosingModal] = useState(false);
     const [isPadronMode, setIsPadronMode] = useState(false);
+    const [isCensoMode, setIsCensoMode] = useState(false);
     const [isDniTool, setIsDniTool] = useState(false);
     const [dniResult, setDniResult] = useState<string | null>(null);
+    const [isCpTool, setIsCpTool] = useState(false);
+    const [cpResult, setCpResult] = useState<{ cp: string; prov: string; pob: string; rows: string[] } | null>(null);
     const [isAdvancedEnabled, setIsAdvancedEnabled] = useState(localStorage.getItem('advanced_search_enabled') === 'true');
+    const [showFichaSelector, setShowFichaSelector] = useState(false);
+    const [activeFicha, setActiveFicha] = useState<FichaTipo | null>(null);
 
     // Monitor advanced search setting
     React.useEffect(() => {
@@ -57,40 +76,37 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
         setResults(null);
         setError(null);
         setShowModal(false);
+        setModalVisible(false);
         setDniResult(null);
+        setCpResult(null);
+        setIsCensoMode(false);
     }, [region.id]);
 
     // Mutual exclusion logic
     React.useEffect(() => {
         if (isAdvancedEnabled) {
             setIsPadronMode(false);
+            setIsCensoMode(false);
             setIsDniTool(false);
         }
     }, [isAdvancedEnabled]);
 
 
-    const togglePadron = () => {
-        const newState = !isPadronMode;
-        setIsPadronMode(newState);
-        if (newState) {
+    const setMode = (mode: 'standard' | 'padron' | 'censo' | 'dni' | 'cp') => {
+        setIsPadronMode(mode === 'padron');
+        setIsCensoMode(mode === 'censo');
+        setIsDniTool(mode === 'dni');
+        setIsCpTool(mode === 'cp');
+        if (mode !== 'standard') {
             setIsAdvancedEnabled(false);
             localStorage.setItem('advanced_search_enabled', 'false');
-            setIsDniTool(false);
-        }
-    };
-
-    const toggleDniTool = () => {
-        const newState = !isDniTool;
-        setIsDniTool(newState);
-        if (newState) {
-            setIsAdvancedEnabled(false);
-            localStorage.setItem('advanced_search_enabled', 'false');
-            setIsPadronMode(false);
         }
     };
 
     let target = targetMapping[region.id];
-    if (region.id === 'es' && isPadronMode) {
+    if (region.id === 'es' && isCensoMode) {
+        target = 'searchcenso';
+    } else if (region.id === 'es' && isPadronMode) {
         target = 'padronesp';
     }
 
@@ -110,6 +126,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
         setIsClosingModal(true);
         setTimeout(() => {
             setShowModal(false);
+            setModalVisible(false);
             setIsClosingModal(false);
         }, 250);
     };
@@ -130,6 +147,27 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
             return;
         }
 
+        if (isCpTool && region.id === 'es') {
+            const cp = query.trim().replace(/\D/g, '').padStart(5, '0').slice(0, 5);
+            setLoading(true);
+            setError(null);
+            setCpResult(null);
+            try {
+                const data = await getCpData(cp.slice(0, 2));
+                const entry = data[cp];
+                if (entry) {
+                    setCpResult({ cp, prov: entry.prov, pob: entry.pob, rows: entry.rows });
+                } else {
+                    setError(`CP ${cp} no encontrado en la base de datos.`);
+                }
+            } catch {
+                setError('Error al cargar datos de códigos postales.');
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
         if (!target) return;
 
         setLoading(true);
@@ -140,10 +178,11 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
         // Advanced search (Spain only) skips the initial /gateway hit so the
         // session costs exactly AdvancedSearchCost units, not +1. The modal
         // opens empty and the backend streams everything via SSE.
-        if (region.id === 'es' && isAdvancedEnabled && !isPadronMode && !isDniTool) {
+        if (region.id === 'es' && isAdvancedEnabled && !isPadronMode && !isCensoMode && !isDniTool) {
             setResults({ _advanced: true });
             setShowModal(true);
-            setLoading(false);
+            setModalVisible(false);
+            // loading stays true until onReady fires from modal SSE
             return;
         }
 
@@ -176,6 +215,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
             const data = await response.json();
             setResults(data);
             setShowModal(true);
+            setModalVisible(true);
         } catch (err: any) {
             console.error('Search operation failed:', err);
             setError(err.message || 'LINK_ERROR: Proceso de inteligencia fallido');
@@ -226,6 +266,11 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                     z-index: 0;
                     pointer-events: none;
                 }
+                @keyframes goldShine {
+                    0%, 100% { color: #b8860b; }
+                    50%      { color: #e8c84a; }
+                }
+                .tab-gold-inactive { animation: goldShine 4s ease-in-out infinite; }
                 .advanced-energy-border::after {
                     content: "";
                     position: absolute;
@@ -258,7 +303,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                 gap: '8px'
             }}>
                 <Database size={16} color="var(--accent-cyan)" />
-                {isDniTool ? 'Herramienta: Completar identificador' : `Buscador de Inteligencia en ${region.country}`}
+                {`Buscador de Inteligencia en ${region.country}`}
             </h4>
 
             <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
@@ -270,7 +315,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                         type="text"
                         value={query}
                         onChange={(e) => { setQuery(e.target.value); setDniResult(null); }}
-                        placeholder={isDniTool ? "Introduce DNI/NIE sin letra..." : isPadronMode ? "Ingresa nombres y apellidos..." : "Ingresa un DNI, Nombre o Email..."}
+                        placeholder={isDniTool ? "Introduce DNI/NIE sin letra..." : isPadronMode ? "Ingresa nombres y apellidos..." : isCpTool ? "Introduce código postal (5 dígitos)..." : isCensoMode ? "Ingresa un DNI, Nombre o Email..." : "Ingresa un DNI, Nombre o Email..."}
                         autoComplete="off"
                         autoCorrect="off"
                         spellCheck="false"
@@ -307,7 +352,7 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                         transform: loading ? 'scale(0.98)' : 'none'
                     }}
                 >
-                    {loading ? <Loader2 size={16} className="animate-spin" /> : isDniTool ? 'CALCULAR' : 'BUSCAR'}
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : isDniTool ? 'CALCULAR' : isCpTool ? 'CONSULTAR' : 'BUSCAR'}
                 </button>
             </form>
 
@@ -368,35 +413,104 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                 </div>
             )}
 
-            {region.id === 'es' && (
-                <div style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div
-                        onClick={togglePadron}
-                        style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '12px', color: isPadronMode ? 'var(--accent-cyan)' : 'var(--text-secondary)', transition: 'all 0.3s' }}
-                    >
+            {cpResult && createPortal(
+                <CpLookupPanel
+                    cp={cpResult.cp}
+                    prov={cpResult.prov}
+                    pob={cpResult.pob}
+                    rows={cpResult.rows}
+                    onClose={() => setCpResult(null)}
+                />,
+                document.body
+            )}
+
+            {region.id === 'es' && (() => {
+                const tabs = [
+                    { mode: 'standard', label: 'ESTÁNDAR', gold: false },
+                    { mode: 'padron',   label: 'PADRÓN',   gold: true  },
+                    { mode: 'censo',    label: 'CENSO',    gold: true  },
+                    { mode: 'dni',      label: 'ID',       gold: false },
+                    { mode: 'cp',       label: 'C.P.',     gold: false },
+                ] as const;
+                const activeIndex = isPadronMode ? 1 : isCensoMode ? 2 : isDniTool ? 3 : isCpTool ? 4 : 0;
+                return (
+                <div style={{ marginBottom: '8px' }}>
+                    <div style={{ position: 'relative', display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '14px', gap: 0 }}>
+                        {tabs.map(({ mode, label, gold }, i) => {
+                            const active = i === activeIndex;
+                            return (
+                            <button
+                                key={mode}
+                                onClick={() => setMode(mode)}
+                                className={gold && !active ? 'tab-gold-inactive' : ''}
+                                style={{
+                                    flex: '1 1 0%',
+                                    minWidth: 0,
+                                    padding: '7px 0',
+                                    background: 'none',
+                                    border: 'none',
+                                    borderBottom: '2px solid transparent',
+                                    marginBottom: '-1px',
+                                    color: active ? (gold ? '#e8c840' : '#fff') : (gold ? undefined : 'rgba(255,255,255,0.3)'),
+                                    fontSize: '10px',
+                                    fontWeight: active ? 700 : 500,
+                                    letterSpacing: '0.5px',
+                                    cursor: 'pointer',
+                                    transition: 'font-weight 0.25s ease',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                {label}
+                            </button>
+                            );
+                        })}
                         <div style={{
-                            width: '32px', height: '18px', background: isPadronMode ? 'rgba(0, 240, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-                            border: `1px solid ${isPadronMode ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.2)'}`, borderRadius: '20px', position: 'relative', transition: 'all 0.3s'
-                        }}>
-                            <div style={{ width: '12px', height: '12px', background: isPadronMode ? 'var(--accent-cyan)' : '#888', borderRadius: '50%', position: 'absolute', top: '2px', left: isPadronMode ? '16px' : '2px', transition: 'all 0.3s ease-in-out' }} />
-                        </div>
-                        <span style={{ fontWeight: isPadronMode ? 700 : 500, letterSpacing: '0.5px' }}>MODO PADRÓN</span>
+                            position: 'absolute',
+                            bottom: '-1px',
+                            left: `${activeIndex * (100 / tabs.length)}%`,
+                            width: `${100 / tabs.length}%`,
+                            height: '2px',
+                            background: 'var(--accent-cyan)',
+                            boxShadow: '0 0 6px rgba(0,240,255,0.5)',
+                            transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                            borderRadius: '2px 2px 0 0',
+                        }} />
                     </div>
 
-                    <div
-                        onClick={toggleDniTool}
-                        style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '12px', color: isDniTool ? 'var(--accent-cyan)' : 'var(--text-secondary)', transition: 'all 0.3s' }}
+                    <button
+                        onClick={() => setShowFichaSelector(true)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(26, 58, 107, 0.2)',
+                            border: '1px solid rgba(59, 130, 246, 0.4)',
+                            color: 'rgba(147, 197, 253, 0.9)',
+                            padding: '8px 14px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            letterSpacing: '0.5px',
+                            transition: 'all 0.2s',
+                            width: '100%',
+                            justifyContent: 'center',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(26, 58, 107, 0.4)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(59, 130, 246, 0.7)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(26, 58, 107, 0.2)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(59, 130, 246, 0.4)'; }}
                     >
-                        <div style={{
-                            width: '32px', height: '18px', background: isDniTool ? 'rgba(0, 240, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-                            border: `1px solid ${isDniTool ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.2)'}`, borderRadius: '20px', position: 'relative', transition: 'all 0.3s'
-                        }}>
-                            <div style={{ width: '12px', height: '12px', background: isDniTool ? 'var(--accent-cyan)' : '#888', borderRadius: '50%', position: 'absolute', top: '2px', left: isDniTool ? '16px' : '2px', transition: 'all 0.3s ease-in-out' }} />
-                        </div>
-                        <span style={{ fontWeight: isDniTool ? 700 : 500, letterSpacing: '0.5px' }}>COMPLETAR IDENTIFICADOR</span>
-                    </div>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                            <polyline points="10 9 9 9 8 9"/>
+                        </svg>
+                        FICHA ADMINISTRATIVA
+                    </button>
                 </div>
-            )}
+                );
+            })()}
 
             {error && (
                 <div className="animate-dni-tool" style={{ padding: '12px', background: 'rgba(255, 42, 95, 0.1)', borderLeft: '3px solid var(--vuln-critical)', color: 'var(--text-secondary)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px', marginTop: '12px' }}>
@@ -411,6 +525,24 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                 </div>
             )}
 
+            {showFichaSelector && createPortal(
+                <FichaSelector
+                    onPick={(tipo) => { setShowFichaSelector(false); setActiveFicha(tipo); }}
+                    onClose={() => setShowFichaSelector(false)}
+                />,
+                document.body
+            )}
+
+            {activeFicha === 'ta1' && createPortal(
+                <FichaCensado onClose={() => setActiveFicha(null)} />,
+                document.body
+            )}
+
+            {activeFicha === 'm030' && createPortal(
+                <Modelo030 onClose={() => setActiveFicha(null)} />,
+                document.body
+            )}
+
             {showModal && results && createPortal(
                 <SearchResultsModal
                     results={results}
@@ -418,6 +550,8 @@ const SearchWidget: React.FC<SearchWidgetProps> = ({ region }) => {
                     country={region.country}
                     onClose={handleCloseModal}
                     isClosing={isClosingModal}
+                    isHidden={!modalVisible}
+                    onReady={results?._advanced ? () => { setLoading(false); setModalVisible(true); } : undefined}
                 />,
                 document.body
             )}

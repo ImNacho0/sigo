@@ -85,7 +85,7 @@ const App: React.FC = () => {
           setStatsLoaded(true); // force re-render
         }
       })
-      .catch(err => console.error("Error fetching stats:", err));
+      .catch(() => {});
   }, []);
 
   const handleLoginSuccess = (data: any) => {
@@ -104,7 +104,7 @@ const App: React.FC = () => {
     try {
       await fetch('/auth/logout', { method: 'POST' });
     } catch (e) {
-      console.error("Logout failed", e);
+      void e;
     }
     setTimeout(() => {
       setIsAuthenticated(false);

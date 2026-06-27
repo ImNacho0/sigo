@@ -61,7 +61,7 @@ func handleGateway(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if licenseKey != "" {
-		isPadron := req.Target == "padronesp"
+		isPadron := req.Target == "padronesp" || req.Target == "searchcenso"
 		if err := licenseManager.CheckQuota(licenseKey, isPadron); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -90,6 +90,27 @@ func handleGateway(w http.ResponseWriter, r *http.Request) {
 	case "searchchi":
 		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
 		handleSearchChi(w, r)
+	case "searchcan":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchCan(w, r)
+	case "searchbol":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchBol(w, r)
+	case "searchecu":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchEcu(w, r)
+	case "searchven":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchVen(w, r)
+	case "searchpar":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchPar(w, r)
+	case "searchmex":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchMex(w, r)
+	case "searchcenso":
+		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
+		handleSearchCenso(w, r)
 	case "padronesp":
 		r.Body = io.NopCloser(bytes.NewBuffer(req.Data))
 		handlePadronEsp(w, r)
@@ -272,6 +293,34 @@ func handleSearchPer(w http.ResponseWriter, r *http.Request) {
 
 func handleSearchChi(w http.ResponseWriter, r *http.Request) {
 	proxyRequest(w, r, BackendURL+"/searchchi")
+}
+
+func handleSearchCan(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchcan")
+}
+
+func handleSearchBol(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchbol")
+}
+
+func handleSearchEcu(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchecu")
+}
+
+func handleSearchVen(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchven")
+}
+
+func handleSearchPar(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchpar")
+}
+
+func handleSearchMex(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchmex")
+}
+
+func handleSearchCenso(w http.ResponseWriter, r *http.Request) {
+	proxyRequest(w, r, BackendURL+"/searchcenso")
 }
 
 func handlePadronEsp(w http.ResponseWriter, r *http.Request) {

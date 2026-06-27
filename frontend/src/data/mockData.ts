@@ -21,6 +21,7 @@ export interface VulnerabilityData {
     // Previous intelligence metrics
     president: string;
     presidentPhoto: string;
+    presidentPhotoPosition?: string;
     king?: string;
     kingPhoto?: string;
     secretService: string;
@@ -39,15 +40,15 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         coordinates: [40.4168, -3.7038],
         severityScore: 87,
         totalPopulation: 48592909, // approximate 2024
-        filteredPopulation: 37945702, // Censo 2022
-        leakDetails: 'Censos Electorales (2011, 2018, 2022) y bases diversas públicas del INE.',
-        sensitiveDataHeaders: ['Nombre', 'Apellidos', 'Direccion', 'Email', 'Telefono', 'DNI', 'Fecha de nacimiento', 'etc...'],
-        censusType: 'Electoral',
-        censusDate: '2011, 2018 y 2022',
+        filteredPopulation: 46000000, // Censo Nacional INE 2025
+        leakDetails: 'Censos electorales del INE (2011, 2018 y 2022) complementados con el Censo Nacional del INE 2025. El censo nacional incluye menores y personas en situación migratoria, con cobertura total de la población registrada.',
+        sensitiveDataHeaders: ['Nombre', 'Apellidos', 'Provincia', 'Municipio', 'Fecha de nacimiento', 'Tipo de documento', 'DNI', 'NIE', 'Direccion', 'Email', 'Telefono'],
+        censusType: 'Electoral y Nacional',
+        censusDate: '2011, 2018, 2022 y 2025',
         leakSize: '',
         lastScan: '',
         docs: 0,
-        status: 'Alto',
+        status: 'Crítico',
         president: 'Pedro Sánchez',
         presidentPhoto: new URL('../assets/countries/es/president.jpg', import.meta.url).href,
         king: 'Felipe VI',
@@ -56,7 +57,7 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         filteredDataPercentage: 0,
         extraDataDesc: '+300GB',
         extraDataValue: '50.000€',
-        censusPrice: '10.000€',
+        censusPrice: '20.000€',
         cybercrimePercentage: '18% - 22%',
         governmentType: 'Monarquía Parlamentaria',
         economyStatus: 'Economía Desarrollada (Alta)'
@@ -68,7 +69,7 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         severityScore: 80,
         totalPopulation: 19960000,
         filteredPopulation: 13891097, // 2017
-        leakDetails: 'Sistema electoral y provincias.',
+        leakDetails: 'Registro electoral nacional del SERVEL (2018) con datos de votantes organizados por región, provincia y comuna, incluyendo RUT, domicilio y circunscripción.',
         sensitiveDataHeaders: ['Nombre', 'Rut', 'DV', 'Circuns', 'Mesa', 'Sexo', 'Dir_Servel', 'Region', 'Provincia', 'Comuna', 'Apellido_P', 'Apellido_M', 'N_Pila'],
         censusType: 'Electoral',
         censusPrice: '50$',
@@ -92,7 +93,7 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         severityScore: 95,
         totalPopulation: 34352719,
         filteredPopulation: 31888853, // 2021
-        leakDetails: 'Bases de datos provenientes de RENIEC.',
+        leakDetails: 'Filtración del Registro Nacional de Identificación y Estado Civil (RENIEC, 2021) con datos biométricos, civiles y económicos de prácticamente toda la población adulta peruana.',
         sensitiveDataHeaders: ['documento', 'paterno', 'materno', 'nombres', 'nacimiento', 'edad', 'ubigeo', 'ubicacion', 'direccion', 'sexo', 'estado', 'sueldo', 'credito', 'madre', 'padre', 'departamento', 'provincia', 'distrito', 'telefono', 'patmatnom', 'caducidad', 'cui', 'emision', 'estatura', 'inscripcion', 'instruccion', 'restriccion'],
         censusType: 'Nacional',
         censusPrice: '100$',
@@ -116,7 +117,7 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         severityScore: 99,
         totalPopulation: 46654581,
         filteredPopulation: 273428870, // Number provided by user
-        leakDetails: 'Sistema Nacional (Censo nacional 2024)',
+        leakDetails: 'Censo nacional argentino 2024 con datos de identidad, domicilio, edad y teléfono de la práctica totalidad de ciudadanos registrados en el padrón nacional.',
         sensitiveDataHeaders: ['ID', 'Nombre', 'Apellidos', 'DNI', 'Fecha de nacimiento', 'Edad', 'Direccion', 'Telefono'],
         censusType: 'Nacional',
         censusPrice: '150$',
@@ -137,10 +138,10 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         id: 'sv',
         country: 'El Salvador',
         coordinates: [13.7942, -88.8965],
-        severityScore: 85,
+        severityScore: 95,
         totalPopulation: 6364000,
         filteredPopulation: 23420195, // Provided by user
-        leakDetails: 'Múltiples bases de datos: Votantes, PNC, Seguro Social, Telecom.',
+        leakDetails: 'Filtración cruzada del Tribunal Supremo Electoral, Policía Nacional Civil (PNC) y Seguro Social (2024). Datos electorales, policiales y sanitarios combinados en un único conjunto.',
         sensitiveDataHeaders: ['DUI', 'Nombres', 'Apellidos', 'Departamento', 'Municipio', 'CentroVotacion', 'Avenida', 'Calle', 'ReferenciaZona', 'JuntaReceptoraVotos', 'NumeroMesa'],
         censusType: 'Electoral',
         censusPrice: '35$',
@@ -148,7 +149,7 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         leakSize: '',
         lastScan: '',
         docs: 0,
-        status: 'Alto',
+        status: 'Crítico',
         president: 'Nayib Bukele',
         presidentPhoto: new URL('../assets/countries/sv/president.jpg', import.meta.url).href,
         secretService: 'Organismo de Inteligencia del Estado (OIE)',
@@ -164,7 +165,7 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         severityScore: 85,
         totalPopulation: 7046000,
         filteredPopulation: 4006750, // Provided by user
-        leakDetails: 'Sistema electoral (Censo 2020)',
+        leakDetails: 'Padrón electoral del Consejo Supremo Electoral (CSE, 2020) con datos personales, dirección, zona territorial y cédula de ciudadanos registrados en el censo nacional.',
         sensitiveDataHeaders: ['ID', 'TipoDocumento', 'NumeroCedula', 'CodigoElectoral', 'EstadoRegistro', 'CodigoCentroMunicipio', 'PrimerApellido', 'SegundoApellido', 'PrimerNombre', 'SegundoNombre', 'SexoCodigo', 'FechaNacimiento', 'SexoTexto', 'Direccion', 'CodigoTerritorial', 'Zona', 'Municipio', 'Departamento'],
         censusType: 'Electoral',
         censusPrice: '20$',
@@ -188,11 +189,11 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         severityScore: 78,
         totalPopulation: 12388571,
         filteredPopulation: 0,
-        leakDetails: 'Padrón biométrico y registros civiles.',
+        leakDetails: 'Censo Nacional de Bolivia 2025. Padrón biométrico y registros civiles de toda la población.',
         sensitiveDataHeaders: ['id', 'nombres', 'primerApellido', 'segundoApellido', 'nroDocumento', 'complemento', 'fechaNacimiento', 'sexo', 'estadoCivil', 'nacionalidad', 'direccion', 'telefono', 'correo', 'lugarNacimiento', 'departamento', 'municipio'],
-        censusType: 'Electoral/Civil',
+        censusType: 'Nacional',
         censusPrice: '2500$',
-        censusDate: '2022',
+        censusDate: '2025',
         leakSize: '',
         lastScan: '',
         docs: 0,
@@ -212,11 +213,11 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         severityScore: 92,
         totalPopulation: 18190000,
         filteredPopulation: 0,
-        leakDetails: 'Filtración masiva de registros gubernamentales y financieros (Novaestrat).',
+        leakDetails: 'Censo Nacional del Ministerio de Salud Pública del Ecuador (2024). Registros médicos y datos personales de toda la población.',
         sensitiveDataHeaders: ['Id', 'Nombre', 'Identificacion', 'Sexo', 'Estado_civil', 'Nacionalidad', 'Lugar_nacimiento', 'Residencia', 'Direccion', 'Telefono', 'Celular', 'Edad_aproximada', 'Nombre_Contacto', 'Parentezco', 'Telefono_Contacto', 'Numero_Presentante'],
-        censusType: 'Nacional/Financiero',
+        censusType: 'Médico / MSP',
         censusPrice: '3000$',
-        censusDate: '2023',
+        censusDate: '2024',
         leakSize: '',
         lastScan: '',
         docs: 0,
@@ -236,7 +237,7 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         severityScore: 90,
         totalPopulation: 28838499,
         filteredPopulation: 0,
-        leakDetails: 'Sistema Patria y registros del CNE.',
+        leakDetails: 'Registros del Consejo Nacional Electoral (CNE) y del Sistema Patria con datos de identidad, estado civil, fecha de nacimiento y cédula de la población venezolana.',
         sensitiveDataHeaders: ['cedula', 'nacionalidad', 'primer_apellido', 'segundo_apellido', 'primer_nombre', 'segundo_nombre', 'sexo', 'fecha_nacimiento', 'primernombre', 'segundonombre', 'primerapellido', 'segundoapellido', 'fechanacimiento', 'edad', 'estadocivil', 'genero'],
         censusType: 'Electoral',
         censusPrice: '200$',
@@ -254,13 +255,62 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
         economyStatus: 'Economía en Crisis / Hiperinflación'
     },
     {
+        id: 'mx',
+        country: 'México',
+        coordinates: [23.6345, -102.5528],
+        severityScore: 72,
+        totalPopulation: 130861000,
+        filteredPopulation: 54000000,
+        leakDetails: 'Padrón electoral parcial del Instituto Nacional Electoral (INE), correspondiente al ciclo 2018. Incluye campos de identidad completa (CVE, CURP, nombre y apellidos), domicilio estructurado (calle, colonia, CP, municipio, estado) y datos de adscripción electoral (sección, manzana, folio de credencial). Base incompleta con cobertura estimada del 60% de la Lista Nominal nacional.',
+        sensitiveDataHeaders: ['Cve', 'Nombre', 'Paterno', 'Materno', 'Fecnac', 'Sexo', 'Calle', 'Int', 'Ext', 'Colonia', 'Cp', 'E', 'D', 'M', 'S', 'L', 'Mza', 'Consec', 'Cred', 'Folio', 'Nac', 'Curp'],
+        censusType: 'Electoral (Incompleto)',
+        censusPrice: '100€',
+        censusDate: '2018',
+        leakSize: '',
+        lastScan: '',
+        docs: 0,
+        status: 'Alto',
+        president: 'Claudia Sheinbaum',
+        presidentPhoto: new URL('../assets/countries/mx/president.jpg', import.meta.url).href,
+        presidentPhotoPosition: 'center 15%',
+        secretService: 'CISEN — Centro de Investigación y Seguridad Nacional',
+        filteredDataPercentage: 0,
+        cybercrimePercentage: '35% - 40%',
+        governmentType: 'República Federal Presidencialista',
+        economyStatus: 'Economía Emergente (Media-Alta)'
+    },
+    {
+        id: 'ca',
+        country: 'Canadá',
+        coordinates: [56.1304, -106.3468],
+        severityScore: 55,
+        totalPopulation: 38929902,
+        filteredPopulation: 19500000,
+        leakDetails: 'Registro de la propiedad (2011–2025) y censo de negocios (2011) filtrados. Incluye datos de identidad personal, domicilio, perfil socioeconómico y demográfico de millones de ciudadanos canadienses.',
+        sensitiveDataHeaders: ['First Name', 'Last Name', 'Street Address', 'Address 2', 'City', 'Province', 'PostalCode', 'Phone', 'Income', 'Age', 'Sex', 'Home Ownership', 'Language', 'Family Status', 'Education', 'Job Type', 'Age of Children', 'Household Size', 'Dwelling Age', 'Dwelling Type'],
+        censusType: 'Registro de Propiedad y Negocios',
+        censusPrice: '20€',
+        censusDate: '2011 - 2025',
+        leakSize: '',
+        lastScan: '',
+        docs: 0,
+        status: 'Medio',
+        president: 'Mark Carney',
+        presidentPhoto: new URL('../assets/countries/ca/president.jpg', import.meta.url).href,
+        secretService: 'CSIS — Canadian Security Intelligence Service',
+        filteredDataPercentage: 0,
+        cybercrimePercentage: '10% - 15%',
+        governmentType: 'Monarquía Constitucional Federal',
+        economyStatus: 'Economía Desarrollada (Alta)'
+    },
+    {
         id: 'py',
         country: 'Paraguay',
         coordinates: [-25.2867, -57.6470],
         severityScore: 65,
         totalPopulation: 7075199,
         filteredPopulation: 2576026,
-        leakDetails: 'Filtración masiva de registros gubernamentales y financieros (Novaestrat).',
+        leakDetails: 'Registro médico nacional paraguayo (2023) con datos sanitarios, condición de salud, embarazo, profesión y fallecimiento de ciudadanos registrados en el sistema público de salud.',
         sensitiveDataHeaders: ['id', 'fecha', 'cedula', 'nombre', 'edad_actual', 'nomdpto', 'nomdist', 'nombarrio', 'personal_salud', 'celular', 'id_estado', 'estado', 'embarazada', 'nomserv', 'fallecido', 'fecha_nacimiento', 'enfermedad', 'profesion'],
         censusType: 'Registro medico',
         censusPrice: '40$',
@@ -282,11 +332,15 @@ export const mockVulnerabilityData: VulnerabilityData[] = [
 mockVulnerabilityData.forEach(region => {
     // Manual overrides
     const manualPercentages: Record<string, number> = {
+        'es': 99,
         'bo': 99,
         'ec': 99,
         've': 82,
         'sv': 90,
-        'pe': 98
+        'pe': 99,
+        'mx': 60,
+        'ar': 99,
+        'ca': 50
     };
 
     if (manualPercentages[region.id] !== undefined) {

@@ -1,26 +1,110 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
-// CountryStats representa las estadísticas de un país
+// CountryStats representa las estadísticas de un país (formato de respuesta)
 type CountryStats struct {
-	DocCount     int       `json:"doc_count"`
-	LeakSize     string    `json:"leakSize"`
-	LastScan     string    `json:"last_scan"`
-	LastScanTime time.Time `json:"-"` // No se serializa, solo para cálculos internos
+	DocCount int    `json:"doc_count"`
+	LeakSize string `json:"leakSize"`
+	LastScan string `json:"last_scan"`
 }
 
-// Cache global de estadísticas
+// statsAliasToCountry mapea el alias del índice ES al código de país del frontend
+var statsAliasToCountry = map[string]string{
+	"espana":     "es",
+	"argentina":  "ar",
+	"elsalvador": "sv",
+	"nicaragua":  "ni",
+	"peru":       "pe",
+	"chile":      "cl",
+	"bolivia":    "bo",
+	"ecuador":    "ec",
+	"venezuela":  "ve",
+	"paraguay":   "py",
+	"mexico":     "mx",
+	"canada":     "ca",
+}
+
+// statsAliasOrder define el orden estable de aliases para construir el _msearch
+var statsAliasOrder = []string{
+	"espana", "argentina", "elsalvador", "nicaragua", "peru",
+	"chile", "bolivia", "ecuador", "venezuela", "paraguay", "mexico", "canada",
+}
+
+// expectedCountries es la lista de IDs de países que devuelve la API
+var expectedCountries = []string{"es", "cl", "pe", "ar", "sv", "ni", "bo", "ec", "ve", "py", "mx", "ca"}
+
+// lastScanByCountry guarda el último escaneo (timestamp) por país.
+// Lo actualiza el indexer vía /api/stats/invalidate.
 var (
-	statsCache     = make(map[string]CountryStats)
-	statsCacheMux  sync.RWMutex
-	statsCacheTime time.Time
+	lastScanByCountry = make(map[string]time.Time)
+	lastScanMux       sync.RWMutex
+)
+
+func lastScanFilePath() string {
+	return filepath.Join("configs", "last_scan.json")
+}
+
+func saveLastScan() {
+	lastScanMux.RLock()
+	data := make(map[string]int64, len(lastScanByCountry))
+	for k, v := range lastScanByCountry {
+		if !v.IsZero() {
+			data[k] = v.Unix()
+		}
+	}
+	lastScanMux.RUnlock()
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	if err := os.WriteFile(lastScanFilePath(), b, 0644); err != nil {
+		log.Printf("Warning: could not save last_scan.json: %v", err)
+	}
+}
+
+func loadLastScan() map[string]time.Time {
+	b, err := os.ReadFile(lastScanFilePath())
+	if err != nil {
+		return nil
+	}
+	var data map[string]int64
+	if err := json.Unmarshal(b, &data); err != nil {
+		return nil
+	}
+	result := make(map[string]time.Time, len(data))
+	for k, ts := range data {
+		result[k] = time.Unix(ts, 0)
+	}
+	return result
+}
+
+// esStatsEntry representa el resultado crudo desde Elasticsearch por país
+type esStatsEntry struct {
+	DocCount  int64
+	SizeBytes int64
+}
+
+// Cache de resultados de ES (60s TTL)
+var (
+	esStatsCacheVal map[string]esStatsEntry
+	esStatsCacheAt  time.Time
+	esStatsCacheMux sync.Mutex
+	esStatsTTL      = 60 * time.Second
 )
 
 // getRelativeTime convierte una fecha a formato relativo (ej: "hace 4 días")
@@ -74,74 +158,163 @@ func getRelativeTime(t time.Time) string {
 	}
 }
 
-// handleStats devuelve las estadísticas de todos los países
-// Combina doc_count real de Python API con leakSize/last_scan del cache
+// formatLeakSize convierte bytes a GB decimales (10^9), no GiB binarios.
+func formatLeakSize(bytes int64) string {
+	gb := float64(bytes) / 1e9
+	return fmt.Sprintf("%.1f GB", gb)
+}
+
+// fetchAllStatsFromES dispara un _msearch contra Elasticsearch obteniendo
+// doc_count (hits.total.value) y bytes (aggs.bytes.value) para cada alias.
+func fetchAllStatsFromES() map[string]esStatsEntry {
+	if ESHost == "" || ESUser == "" || ESPasswd == "" {
+		return nil
+	}
+
+	var ndjson bytes.Buffer
+	for _, alias := range statsAliasOrder {
+		header := map[string]interface{}{"index": alias}
+		body := map[string]interface{}{
+			"track_total_hits": true,
+			"size":             0,
+			"aggs": map[string]interface{}{
+				"bytes": map[string]interface{}{
+					"sum": map[string]interface{}{
+						"field": "_size",
+					},
+				},
+			},
+		}
+		hb, _ := json.Marshal(header)
+		bb, _ := json.Marshal(body)
+		ndjson.Write(hb)
+		ndjson.WriteByte('\n')
+		ndjson.Write(bb)
+		ndjson.WriteByte('\n')
+	}
+
+	url := strings.TrimRight(ESHost, "/") + "/_msearch"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, &ndjson)
+	if err != nil {
+		return nil
+	}
+	req.SetBasicAuth(ESUser, ESPasswd)
+	req.Header.Set("Content-Type", "application/x-ndjson")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+
+	var parsed struct {
+		Responses []struct {
+			Hits struct {
+				Total struct {
+					Value int64 `json:"value"`
+				} `json:"total"`
+			} `json:"hits"`
+			Aggregations struct {
+				Bytes struct {
+					Value float64 `json:"value"`
+				} `json:"bytes"`
+			} `json:"aggregations"`
+		} `json:"responses"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil
+	}
+
+	out := make(map[string]esStatsEntry, len(statsAliasOrder))
+	for i, alias := range statsAliasOrder {
+		if i >= len(parsed.Responses) {
+			break
+		}
+		r := parsed.Responses[i]
+		code, ok := statsAliasToCountry[alias]
+		if !ok {
+			continue
+		}
+		out[code] = esStatsEntry{
+			DocCount:  r.Hits.Total.Value,
+			SizeBytes: int64(r.Aggregations.Bytes.Value),
+		}
+	}
+	return out
+}
+
+// getCachedESStats devuelve los stats cacheados (60s TTL).
+// Si la caché está vencida intenta refetch; si falla, devuelve el último valor conocido.
+func getCachedESStats() map[string]esStatsEntry {
+	esStatsCacheMux.Lock()
+	defer esStatsCacheMux.Unlock()
+
+	if esStatsCacheVal != nil && time.Since(esStatsCacheAt) < esStatsTTL {
+		return esStatsCacheVal
+	}
+
+	fresh := fetchAllStatsFromES()
+	if fresh != nil {
+		esStatsCacheVal = fresh
+		esStatsCacheAt = time.Now()
+	}
+	return esStatsCacheVal
+}
+
+// invalidateESStatsCache fuerza el refetch en la próxima lectura.
+func invalidateESStatsCache() {
+	esStatsCacheMux.Lock()
+	esStatsCacheAt = time.Time{}
+	esStatsCacheMux.Unlock()
+}
+
+// handleStats devuelve las estadísticas de todos los países leyendo de ES.
 func handleStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Get real doc counts from Python API
-	req, err := http.NewRequest("GET", BackendURL+"/stats", nil)
-	if err != nil {
-		http.Error(w, "Error creando petición", http.StatusInternalServerError)
-		return
+	esStats := getCachedESStats()
+
+	lastScanMux.RLock()
+	scans := make(map[string]time.Time, len(lastScanByCountry))
+	for k, v := range lastScanByCountry {
+		scans[k] = v
 	}
+	lastScanMux.RUnlock()
 
-	// Add backend bearer token for authentication
-	req.Header.Set("Authorization", "Bearer "+BearerToken)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		// Fallback to cache if API is down
-		statsCacheMux.RLock()
-		statsWithRelativeTime := make(map[string]CountryStats)
-		for countryID, stat := range statsCache {
-			statCopy := stat
-			statCopy.LastScan = getRelativeTime(stat.LastScanTime)
-			statsWithRelativeTime[countryID] = statCopy
+	out := make(map[string]CountryStats, len(expectedCountries))
+	for _, id := range expectedCountries {
+		cs := CountryStats{
+			DocCount: 0,
+			LeakSize: "0.0 GB",
+			LastScan: "—",
 		}
-		statsCacheMux.RUnlock()
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(statsWithRelativeTime)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Parse Python API response
-	var apiStats map[string]CountryStats
-	if err := json.NewDecoder(resp.Body).Decode(&apiStats); err != nil {
-		http.Error(w, "Error parseando respuesta de API", http.StatusInternalServerError)
-		return
-	}
-
-	// Merge: use doc_count from API, but leakSize and last_scan from cache
-	statsCacheMux.RLock()
-	mergedStats := make(map[string]CountryStats)
-	for countryID, apiStat := range apiStats {
-		merged := apiStat // Start with API data (has doc_count)
-
-		// Override with cached leakSize and last_scan if available
-		if cachedStat, exists := statsCache[countryID]; exists {
-			merged.LeakSize = cachedStat.LeakSize
-			merged.LastScan = getRelativeTime(cachedStat.LastScanTime)
-		} else {
-			// No cache entry, use relative time for API data
-			merged.LastScan = "desconocido"
+		if es, ok := esStats[id]; ok {
+			cs.DocCount = int(es.DocCount)
+			cs.LeakSize = formatLeakSize(es.SizeBytes)
 		}
-
-		mergedStats[countryID] = merged
+		if t, ok := scans[id]; ok && !t.IsZero() {
+			cs.LastScan = getRelativeTime(t)
+		}
+		out[id] = cs
 	}
-	statsCacheMux.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(mergedStats)
+	json.NewEncoder(w).Encode(out)
 }
 
-// handleStatsInvalidate actualiza las estadísticas cuando el indexer termina
+// handleStatsInvalidate actualiza el último escaneo y fuerza refetch de ES.
+// El parámetro `size` (si viene) se ignora: el tamaño real se obtiene desde ES.
 func handleStatsInvalidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
@@ -149,91 +322,41 @@ func handleStatsInvalidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	alias := r.URL.Query().Get("alias")
-	sizeStr := r.URL.Query().Get("size")
-
 	if alias == "" {
 		http.Error(w, "Alias requerido", http.StatusBadRequest)
 		return
 	}
 
-	// Convertir size de bytes a GB
-	var size int64
-	if sizeStr != "" {
-		fmt.Sscanf(sizeStr, "%d", &size)
-	}
-
-	sizeGB := float64(size) / (1024 * 1024 * 1024)
-	leakSize := fmt.Sprintf("%.1f GB", sizeGB)
-
-	// Mapear alias a country ID
-	countryMap := map[string]string{
-		"espana":      "es",
-		"argentina":   "ar",
-		"elsalvador":  "sv",
-		"nicaragua":   "ni",
-		"peru":        "pe",
-		"chile":       "cl",
-		"bolivia":     "bo",
-		"ecuador":     "ec",
-		"venezuela":   "ve",
-		"paraguay":    "py",
-	}
-
-	countryID, ok := countryMap[alias]
+	countryID, ok := statsAliasToCountry[alias]
 	if !ok {
 		http.Error(w, "Alias desconocido", http.StatusBadRequest)
 		return
 	}
 
-	// Actualizar cache con el tamaño real
-	statsCacheMux.Lock()
-	if stat, exists := statsCache[countryID]; exists {
-		now := time.Now()
-		stat.LeakSize = leakSize
-		stat.LastScan = getRelativeTime(now)
-		stat.LastScanTime = now
-		statsCache[countryID] = stat
-	}
-	statsCacheMux.Unlock()
+	lastScanMux.Lock()
+	lastScanByCountry[countryID] = time.Now()
+	lastScanMux.Unlock()
+
+	saveLastScan()
+	invalidateESStatsCache()
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
 
-// updateStatsCache actualiza el cache de estadísticas
-// Esta función debe ser llamada cuando se actualicen las estadísticas reales
-func updateStatsCache(countryID string, docCount int, leakSize string) {
-	statsCacheMux.Lock()
-	defer statsCacheMux.Unlock()
-
-	now := time.Now()
-	statsCache[countryID] = CountryStats{
-		DocCount:     docCount,
-		LeakSize:     leakSize,
-		LastScan:     getRelativeTime(now),
-		LastScanTime: now,
-	}
-	statsCacheTime = now
-}
-
-// initStatsCache inicializa el cache con datos por defecto
+// initStatsCache inicializa estructuras internas cargando el last_scan persistido
+// (si existe). doc_count y leakSize se obtienen de ES en el primer request.
 func initStatsCache() {
-	statsCacheMux.Lock()
-	defer statsCacheMux.Unlock()
+	persisted := loadLastScan()
 
-	now := time.Now()
-	// Simular diferentes tiempos de escaneo para cada país
-	statsCache = map[string]CountryStats{
-		"es": {DocCount: 37945702, LeakSize: "15.2 GB", LastScan: getRelativeTime(now.Add(-2 * 24 * time.Hour)), LastScanTime: now.Add(-2 * 24 * time.Hour)},
-		"cl": {DocCount: 13891097, LeakSize: "5.8 GB", LastScan: getRelativeTime(now.Add(-3 * 24 * time.Hour)), LastScanTime: now.Add(-3 * 24 * time.Hour)},
-		"pe": {DocCount: 31888853, LeakSize: "12.4 GB", LastScan: getRelativeTime(now.Add(-5 * 24 * time.Hour)), LastScanTime: now.Add(-5 * 24 * time.Hour)},
-		"ar": {DocCount: 46654581, LeakSize: "18.9 GB", LastScan: getRelativeTime(now.Add(-1 * 24 * time.Hour)), LastScanTime: now.Add(-1 * 24 * time.Hour)},
-		"sv": {DocCount: 6364000, LeakSize: "2.1 GB", LastScan: getRelativeTime(now.Add(-7 * 24 * time.Hour)), LastScanTime: now.Add(-7 * 24 * time.Hour)},
-		"ni": {DocCount: 4006750, LeakSize: "1.6 GB", LastScan: getRelativeTime(now.Add(-10 * 24 * time.Hour)), LastScanTime: now.Add(-10 * 24 * time.Hour)},
-		"bo": {DocCount: 12388571, LeakSize: "4.8 GB", LastScan: getRelativeTime(now.Add(-15 * 24 * time.Hour)), LastScanTime: now.Add(-15 * 24 * time.Hour)},
-		"ec": {DocCount: 18190000, LeakSize: "7.2 GB", LastScan: getRelativeTime(now.Add(-20 * 24 * time.Hour)), LastScanTime: now.Add(-20 * 24 * time.Hour)},
-		"ve": {DocCount: 28838499, LeakSize: "11.5 GB", LastScan: getRelativeTime(now.Add(-30 * 24 * time.Hour)), LastScanTime: now.Add(-30 * 24 * time.Hour)},
-		"py": {DocCount: 2576026, LeakSize: "1.0 GB", LastScan: getRelativeTime(now.Add(-45 * 24 * time.Hour)), LastScanTime: now.Add(-45 * 24 * time.Hour)},
+	lastScanMux.Lock()
+	lastScanByCountry = make(map[string]time.Time, len(expectedCountries))
+	for _, id := range expectedCountries {
+		if t, ok := persisted[id]; ok {
+			lastScanByCountry[id] = t
+		} else {
+			lastScanByCountry[id] = time.Time{}
+		}
 	}
-	statsCacheTime = now
+	lastScanMux.Unlock()
 }

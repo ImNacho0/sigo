@@ -1,5 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { createRequire } from 'module'
+const { obfuscate } = createRequire(import.meta.url)('javascript-obfuscator')
 import fs from 'fs'
 import path from 'path'
 
@@ -123,7 +125,35 @@ function authMiddleware(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), authMiddleware()],
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
+  plugins: [
+    react(),
+    authMiddleware(),
+    {
+      name: 'obfuscate',
+      renderChunk(code: string, chunk: { fileName: string }) {
+        if (!chunk.fileName.endsWith('.js')) return null
+        return {
+          code: obfuscate(code, {
+            compact: true,
+            controlFlowFlattening: true,
+            controlFlowFlatteningThreshold: 0.5,
+            stringArray: true,
+            stringArrayEncoding: ['base64'],
+            stringArrayThreshold: 0.75,
+            identifierNamesGenerator: 'hexadecimal',
+            renameGlobals: false,
+            selfDefending: false,
+            deadCodeInjection: false,
+          }).getObfuscatedCode(),
+          map: null,
+        }
+      },
+    },
+  ],
   server: {
     proxy: {
       '/api': {
