@@ -536,14 +536,8 @@ func readCSV(path string) ([]map[string]interface{}, error) {
 			continue // skip bad rows
 		}
 
-		values := make([]string, 0, len(record))
-		for _, val := range record {
-			if val != "" {
-				values = append(values, val)
-			}
-		}
 		result = append(result, map[string]interface{}{
-			"content": strings.Join(values, " "),
+			"content": strings.Join(record, ","),
 		})
 	}
 	return result, nil
