@@ -630,12 +630,12 @@ func handleSimplify(w http.ResponseWriter, r *http.Request) {
 }
 
 func callGroq(prompt string) (string, error) {
-	if GroqAPIKey == "" {
-		return "", fmt.Errorf("GROQ_API_KEY not configured")
+	if AIProviderKey == "" {
+		return "", fmt.Errorf("OPENROUTER_API_KEY not configured")
 	}
 
 	reqBody := map[string]interface{}{
-		"model": GroqModel,
+		"model": AIProviderModel,
 		"messages": []interface{}{
 			map[string]interface{}{
 				"role":    "user",
@@ -646,34 +646,50 @@ func callGroq(prompt string) (string, error) {
 	}
 
 	reqBytes, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", GroqURL, bytes.NewBuffer(reqBytes))
+	req, err := http.NewRequest("POST", AIProviderURL, bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return "", fmt.Errorf("error building Groq request: %v", err)
+		return "", fmt.Errorf("error building request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+GroqAPIKey)
+	req.Header.Set("Authorization", "Bearer "+AIProviderKey)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
 	resp, err := aiClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("error calling Groq API: %v", err)
+		return "", fmt.Errorf("error calling AI provider: %v", err)
 	}
 	defer resp.Body.Close()
 
-	var groqResp struct {
+	// Read raw body for logging on error
+	rawBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("AI provider returned HTTP %d: %s", resp.StatusCode, string(rawBody))
+	}
+
+	var aiResp struct {
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
-		return "", fmt.Errorf("error parsing Groq response: %v", err)
-	}
-	if len(groqResp.Choices) == 0 {
-		return "", fmt.Errorf("no choices from Groq")
+	if err := json.Unmarshal(rawBody, &aiResp); err != nil {
+		return "", fmt.Errorf("error parsing AI response: %v (body: %s)", err, string(rawBody))
 	}
 
-	text := groqResp.Choices[0].Message.Content
+	if aiResp.Error != nil {
+		return "", fmt.Errorf("AI provider error: %s", aiResp.Error.Message)
+	}
+
+	if len(aiResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices from AI provider (body: %s)", string(rawBody))
+	}
+
+	text := aiResp.Choices[0].Message.Content
 	return cleanAIResponse(text), nil
 }
 

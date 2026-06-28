@@ -32,31 +32,40 @@ if not AUTHORIZED_TOKENS:
     if single_token:
         AUTHORIZED_TOKENS = [single_token]
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+AI_PROVIDER_KEY = os.getenv("OPENROUTER_API_KEY", "")
+AI_PROVIDER_URL = "https://openrouter.ai/api/v1/chat/completions"
+AI_PROVIDER_MODEL = "poolside/laguna-xs.2:free"
 
 
 def call_groq(prompt, max_tokens=100):
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY not configured")
+    if not AI_PROVIDER_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY not configured")
     payload = json.dumps(
         {
-            "model": GROQ_MODEL,
+            "model": AI_PROVIDER_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
         }
     ).encode()
     req = urllib.request.Request(
-        GROQ_URL,
+        AI_PROVIDER_URL,
         data=payload,
         headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {AI_PROVIDER_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         },
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        raise RuntimeError(f"AI provider returned HTTP {e.code}: {body}")
+    if "error" in data:
+        raise RuntimeError(f"AI provider error: {data['error']}")
+    if not data.get("choices"):
+        raise RuntimeError(f"no choices from AI provider (response: {data})")
     return data["choices"][0]["message"]["content"].strip()
 
 
